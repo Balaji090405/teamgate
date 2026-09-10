@@ -3,6 +3,7 @@ import {
   CognitoUser,
   CognitoUserPool,
   CognitoUserSession,
+  ISignUpResult,
 } from 'amazon-cognito-identity-js';
 
 const poolData = {
@@ -38,6 +39,119 @@ export function login(
   });
 }
 
+export function signUp(
+  email: string,
+  password: string,
+): Promise<ISignUpResult> {
+  return new Promise((resolve, reject) => {
+    userPool.signUp(
+      email,
+      password,
+      [],
+      [],
+      (error, result) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        if (!result) {
+          reject(new Error('Signup failed.'));
+          return;
+        }
+
+        resolve(result);
+      },
+    );
+  });
+}
+
+export function confirmSignUp(
+  email: string,
+  code: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const user = new CognitoUser({
+      Username: email,
+      Pool: userPool,
+    });
+
+    user.confirmRegistration(code, true, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve();
+    });
+  });
+}
+
+export function resendConfirmationCode(
+  email: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const user = new CognitoUser({
+      Username: email,
+      Pool: userPool,
+    });
+
+    user.resendConfirmationCode((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve();
+    });
+  });
+}
+
+export function forgotPassword(
+  email: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const user = new CognitoUser({
+      Username: email,
+      Pool: userPool,
+    });
+
+    user.forgotPassword({
+      onSuccess: () => {
+        resolve();
+      },
+      onFailure: (error) => {
+        reject(error);
+      },
+      inputVerificationCode: () => {
+        resolve();
+      },
+    });
+  });
+}
+
+export function confirmForgotPassword(
+  email: string,
+  code: string,
+  newPassword: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const user = new CognitoUser({
+      Username: email,
+      Pool: userPool,
+    });
+
+    user.confirmPassword(code, newPassword, {
+      onSuccess: () => {
+        resolve();
+      },
+      onFailure: (error) => {
+        reject(error);
+      },
+    });
+  });
+}
+
 export function getCurrentSession(): CognitoUserSession | null {
   const user = userPool.getCurrentUser();
 
@@ -47,11 +161,16 @@ export function getCurrentSession(): CognitoUserSession | null {
 
   let session: CognitoUserSession | null = null;
 
-  user.getSession((error: Error | null, currentSession: CognitoUserSession | null) => {
-    if (!error && currentSession) {
-      session = currentSession;
-    }
-  });
+  user.getSession(
+    (
+      error: Error | null,
+      currentSession: CognitoUserSession | null,
+    ) => {
+      if (!error && currentSession) {
+        session = currentSession;
+      }
+    },
+  );
 
   return session;
 }
