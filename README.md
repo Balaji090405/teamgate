@@ -1,111 +1,496 @@
-# TeamGate
+TeamGate:
+TeamGate is a small role-based project tracker built for the AWS Knowledge transfer task. It allows authenticated staff members to
+view projects while enforcing different permissions for Admin, Manager,
+and Employee roles.
 
-Role-based project tracker. Built strictly to the assignment's fixed stack:
-Next.js 15 + TS (frontend) · AWS Cognito (login) · API Gateway HTTP API (front door) ·
-Lambda Node 22 + TS (logic) · DynamoDB single table (data) · AWS CDK/TypeScript (infra).
-Region: `ap-south-1`. No NAT Gateway / EC2 / RDS anywhere in this stack.
+Live Demo:
 
-## Permission matrix (enforced in `infra/lambda/handler.ts`, not in the UI)
+Production: https://teamgate.vercel.app/
+GitHub: https://github.com/Balaji090405/teamgate
 
-| Action | Admin | Manager | Employee |
-|---|---|---|---|
-| GET /projects | ✅ | ✅ | ✅ |
-| POST /projects | ✅ | ✅ | ❌ 403 |
-| PUT /projects/{id} | ✅ | ✅ | ❌ 403 |
-| DELETE /projects/{id} | ✅ | ❌ 403 | ❌ 403 |
-| PUT /users/{id}/role | ✅ | ❌ 403 | ❌ 403 |
+Architecture:
 
-## 1. Deploy the infra
+User
+  ↓
+Vercel
+  ↓
+Next.js 15 + TypeScript + Tailwind CSS
+  ↓
+Amazon Cognito → JWT
+  ↓
+API Gateway HTTP API
+  ↓
+AWS Lambda (Node.js 22)
+  ↓
+Amazon DynamoDB
 
-```bash
+The application follows the security principle "UI hides, server
+denies." The frontend hides unavailable actions, but the backend
+independently enforces authorization and returns 403 Forbidden for
+unauthorized API requests.
+
+Features:
+
+Cognito-managed authentication
+
+JWT authentication and API authorization
+
+Admin, Manager, and Employee roles
+
+Project listing, creation, editing, and deletion
+
+Admin-only user management and role changes
+
+Responsive Tailwind CSS interface
+
+Serverless AWS backend
+
+Vercel production deployment
+
+Role Permissions:
+
+Action               Admin   Manager   Employee
+
+View projects         ✅       ✅         ✅
+Create projects       ✅       ✅         ❌
+Edit projects         ✅       ✅         ❌
+Delete projects       ✅       ❌         ❌
+View users            ✅       ❌         ❌
+Change user roles     ✅       ❌         ❌
+
+The backend determines the caller's role from the verified Cognito
+cognito:groups claim. It does not trust a role supplied by the request
+body or URL.
+
+Technology Stack:
+
+Frontend
+
+Next.js 15
+
+TypeScript
+
+App Router
+
+Tailwind CSS
+
+amazon-cognito-identity-js
+
+AWS Backend
+
+Amazon Cognito
+
+API Gateway HTTP API
+
+AWS Lambda
+
+Node.js 22
+
+TypeScript
+
+Amazon DynamoDB
+
+AWS CDK with TypeScript
+
+AWS IAM
+
+Deployment
+
+Frontend: Vercel
+
+Backend infrastructure: AWS CDK in ap-south-1
+
+The project does not use EC2, RDS, or NAT Gateway.
+
+Project Structure:
+
+teamgate/
+├── frontend/
+│   ├── app/
+│   │   ├── dashboard/
+│   │   │   └── page.tsx
+│   │   ├── globals.css
+│   │   └── page.tsx
+│   ├── lib/
+│   │   └── auth.ts
+│   ├── public/
+│   ├── package.json
+│   └── .gitignore
+├── infra/
+│   ├── bin/
+│   │   └── teamgate.ts
+│   ├── lambda/
+│   │   └── handler.ts
+│   ├── lib/
+│   │   └── teamgate-stack.ts
+│   ├── cdk.json
+│   └── package.json
+└── README.md
+
+AWS Components:
+
+Amazon Cognito
+
+Cognito provides managed user authentication through a User Pool with
+these groups:
+
+Admin
+Manager
+Employee
+
+After authentication, Cognito issues JWT tokens. The frontend sends the
+token using:
+
+Authorization: Bearer <JWT>
+
+API Gateway:
+
+The application uses an HTTP API with JWT authorization.
+
+Method   Endpoint             Purpose
+
+GET      /users             List users --- Admin only
+GET      /projects          List projects
+POST     /projects          Create project --- Admin/Manager
+PUT      /projects/{id}     Edit project --- Admin/Manager
+DELETE   /projects/{id}     Delete project --- Admin
+PUT      /users/{id}/role   Change role --- Admin
+
+AWS Lambda:
+
+Lambda contains the backend business logic. It:
+
+Reads the authenticated Cognito group.
+
+Determines the caller's role.
+
+Checks authorization.
+
+Performs the requested DynamoDB operation.
+
+Uses Cognito administration APIs for role changes.
+
+Returns 403 Forbidden when the authenticated user lacks
+permission.
+
+DynamoDB:
+
+TeamGate uses one DynamoDB table with:
+
+Partition key: PK
+Sort key:      SK
+
+A Global Secondary Index is also configured:
+
+GSI1
+Partition key: GSI1PK
+Sort key:      GSI1SK
+
+The table uses PAY_PER_REQUEST billing.
+
+IAM:
+
+Lambda is granted the permissions required for DynamoDB access and
+Cognito user/group administration.
+
+Security Model:
+
+Authentication and authorization are separate.
+
+Cognito
+   ↓
+JWT
+   ↓
+API Gateway JWT validation
+   ↓
+Lambda role/permission check
+   ↓
+DynamoDB operation
+
+For example:
+
+Employee → POST /projects
+              ↓
+           Lambda
+              ↓
+       Permission check
+              ↓
+        403 Forbidden
+
+Therefore, hiding a button is only a user-interface convenience. The
+backend remains the source of truth for authorization.
+
+Local Development:
+
+Prerequisites
+
+Node.js 22+
+
+npm
+
+AWS CLI
+
+AWS CDK
+
+Git
+
+AWS credentials with access to the deployment account
+
+Deploy the infrastructure:
+
 cd infra
 npm install
+npx cdk bootstrap
+npx cdk synth
+npx cdk deploy
+
+CDK outputs the API URL, Cognito User Pool ID, Cognito Client ID, and
+DynamoDB table name.
+
+Run the frontend
+
+cd frontend
+npm install
+npm run dev
+
+Open:
+
+http://localhost:3000
+
+Production build
+
 npm run build
-cdk bootstrap aws://<ACCOUNT_ID>/ap-south-1   # one-time only, skip if already done
-cdk deploy
-```
 
-Note the four `CfnOutput` values printed at the end: `ApiUrl`, `UserPoolId`,
-`UserPoolClientId`, `TableName`. You need all four next.
+Environment Variables
 
-## 2. Create the three test users (one per role)
+Create frontend/.env.local:
 
-```bash
-POOL_ID=<UserPoolId from output>
+NEXT_PUBLIC_API_URL=<API Gateway URL>
+NEXT_PUBLIC_COGNITO_USER_POOL_ID=<Cognito User Pool ID>
+NEXT_PUBLIC_COGNITO_CLIENT_ID=<Cognito User Pool Client ID>
+NEXT_PUBLIC_AWS_REGION=ap-south-1
 
-for user in admin manager employee; do
-  aws cognito-idp admin-create-user \
-    --user-pool-id $POOL_ID \
-    --username ${user}@test.com \
-    --user-attributes Name=email,Value=${user}@test.com Name=email_verified,Value=true \
-    --temporary-password 'Temp1234!' \
-    --message-action SUPPRESS
+Do not commit .env.local to Git. The frontend .gitignore excludes
+.env*.
 
-  aws cognito-idp admin-set-user-password \
-    --user-pool-id $POOL_ID \
-    --username ${user}@test.com \
-    --password 'Passw0rd!' \
-    --permanent
-done
+Do not place passwords, AWS secret keys, or other private credentials in
+frontend environment variables.
 
-aws cognito-idp admin-add-user-to-group --user-pool-id $POOL_ID --username admin@test.com --group-name Admin
-aws cognito-idp admin-add-user-to-group --user-pool-id $POOL_ID --username manager@test.com --group-name Manager
-aws cognito-idp admin-add-user-to-group --user-pool-id $POOL_ID --username employee@test.com --group-name Employee
-```
+Test Accounts:
 
-## 3. Get a JWT and test with curl (do this before touching the frontend)
+The application was tested using Cognito accounts assigned to:
 
-```bash
-CLIENT_ID=<UserPoolClientId from output>
-API_URL=<ApiUrl from output>   # no trailing slash
+Admin
+Manager
+Employee
 
-get_token() {
-  aws cognito-idp initiate-auth \
-    --auth-flow USER_PASSWORD_AUTH \
-    --client-id $CLIENT_ID \
-    --auth-parameters USERNAME=$1,PASSWORD='Passw0rd!' \
-    --query 'AuthenticationResult.IdToken' --output text
+Test passwords are intentionally not documented in this public README.
+Share test credentials separately when required.
+
+Testing
+
+Admin
+
+View projects
+
+Create projects
+
+Edit projects
+
+Delete projects
+
+View users
+
+Change user roles
+
+Manager
+
+View projects
+
+Create projects
+
+Edit projects
+
+Cannot delete projects
+
+Cannot access user management
+
+Employee
+
+View projects
+
+Cannot create projects
+
+Cannot edit projects
+
+Cannot delete projects
+
+Cannot manage roles
+
+Unauthorized API operations return:
+
+403 Forbidden
+
+Deployment
+
+AWS Backend
+
+Infrastructure is defined as code in:
+
+infra/lib/teamgate-stack.ts
+
+Deploy with:
+
+cd infra
+npx cdk deploy
+
+Vercel Frontend:
+
+Production URL:
+
+https://teamgate.vercel.app/
+
+Vercel configuration:
+
+Root Directory: frontend
+Framework: Next.js
+Build Command: npm run build
+
+Configure the four NEXT_PUBLIC_* environment variables in the Vercel
+project settings.
+
+API Examples
+
+Get projects
+
+GET /projects
+Authorization: Bearer <JWT>
+
+Create project:
+
+POST /projects
+Authorization: Bearer <JWT>
+Content-Type: application/json
+
+{
+  "name": "Employee Portal",
+  "description": "Internal employee management project"
 }
 
-ADMIN_TOKEN=$(get_token admin@test.com)
-MANAGER_TOKEN=$(get_token manager@test.com)
-EMPLOYEE_TOKEN=$(get_token employee@test.com)
+Update project:
 
-# Employee tries to create a project -> expect 403
-curl -s -o /dev/null -w "%{http_code}\n" -X POST "$API_URL/projects" \
-  -H "Authorization: Bearer $EMPLOYEE_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Test Project"}'
+PUT /projects/{id}
+Authorization: Bearer <JWT>
+Content-Type: application/json
 
-# Manager creates a project -> expect 201
-curl -X POST "$API_URL/projects" \
-  -H "Authorization: Bearer $MANAGER_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Test Project"}'
+{
+  "name": "Updated Project",
+  "description": "Updated description"
+}
 
-# Manager tries to delete -> expect 403
-curl -s -o /dev/null -w "%{http_code}\n" -X DELETE "$API_URL/projects/<id>" \
-  -H "Authorization: Bearer $MANAGER_TOKEN"
+Delete project:
 
-# Admin deletes -> expect 200
-curl -X DELETE "$API_URL/projects/<id>" -H "Authorization: Bearer $ADMIN_TOKEN"
+DELETE /projects/{id}
+Authorization: Bearer <JWT>
 
-# No token at all -> expect 401 (API Gateway layer, before Lambda even runs)
-curl -s -o /dev/null -w "%{http_code}\n" -X GET "$API_URL/projects"
-```
+Change a user role:
 
-Confirm all rows of the permission matrix behave correctly here before writing
-any frontend code — it's much faster to debug at this layer.
+PUT /users/{id}/role
+Authorization: Bearer <JWT>
+Content-Type: application/json
 
-## 4. Frontend
+{
+  "role": "Manager"
+}
 
-Not built yet — next step once the above is deployed and passing. Will live in
-`frontend/` as a Next.js 15 App Router + TypeScript + Tailwind app, using the
-same `ApiUrl` / `UserPoolId` / `UserPoolClientId` values above.
+Only an Admin can successfully perform the role-change operation.
 
-## Teardown
+Design Decisions
 
-```bash
-cd infra
-cdk destroy
-```
+DynamoDB:
+
+DynamoDB satisfies the required NoSQL/serverless architecture and
+integrates directly with Lambda without managing a database server.
+
+API Gateway HTTP API:
+
+HTTP API provides a lightweight serverless API layer and supports JWT
+authorization.
+
+Cognito:
+
+Cognito provides managed authentication and JWT-based identity
+information without requiring a custom password-storage system.
+
+AWS CDK:
+
+Infrastructure is defined in TypeScript and can be reproduced
+consistently without manually creating AWS resources.
+
+Vercel:
+
+Vercel provides a straightforward deployment platform for the Next.js
+frontend while the backend remains on AWS.
+
+Cost Considerations:
+
+The architecture avoids expensive always-on infrastructure.
+
+The project does not use:
+
+NAT Gateway
+
+EC2
+
+RDS
+
+DynamoDB uses on-demand capacity, and Lambda/API Gateway are serverless
+services.
+
+AWS pricing and free-tier eligibility can change, so usage should be
+monitored in the AWS account.
+
+Security Checklist:
+
+Cognito authentication
+
+JWT verification through API Gateway
+
+Server-side role authorization
+
+403 responses for unauthorized operations
+
+Frontend hides unavailable actions
+
+.env.local excluded from Git
+
+No passwords or AWS secret keys stored in frontend source
+
+No EC2
+
+No RDS
+
+No NAT Gateway
+
+Final Result:
+
+TeamGate is a complete serverless role-based project tracker using:
+
+Next.js 15
+    +
+Tailwind CSS
+    +
+Amazon Cognito
+    +
+API Gateway HTTP API
+    +
+AWS Lambda Node.js 22
+    +
+DynamoDB
+    +
+AWS CDK
+    +
+Vercel
+
+The application is deployed and tested with Admin, Manager, and Employee
+roles, including server-side authorization and Admin role management.
