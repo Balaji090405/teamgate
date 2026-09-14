@@ -3,102 +3,155 @@ import {
   CognitoUser,
   CognitoUserPool,
   CognitoUserSession,
-  ISignUpResult,
 } from 'amazon-cognito-identity-js';
 
-const poolData = {
-  UserPoolId: process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID!,
-  ClientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID!,
-};
+const USER_POOL_ID = process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID!;
+const CLIENT_ID = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID!;
 
-const userPool = new CognitoUserPool(poolData);
+if (!USER_POOL_ID || !CLIENT_ID) {
+  console.warn(
+    'Missing Cognito configuration. Check NEXT_PUBLIC_COGNITO_USER_POOL_ID and NEXT_PUBLIC_COGNITO_CLIENT_ID.'
+  );
+}
+
+const userPool = new CognitoUserPool({
+  UserPoolId: USER_POOL_ID,
+  ClientId: CLIENT_ID,
+});
+
+/* =========================================================
+   TYPES
+========================================================= */
+
+export type UserRole = 'Admin' | 'Manager' | 'Employee';
+
+export interface AuthUser {
+  email: string;
+  role: UserRole;
+  username: string;
+}
+
+/* =========================================================
+   LOGIN
+========================================================= */
 
 export function login(
   email: string,
-  password: string,
+  password: string
 ): Promise<CognitoUserSession> {
   return new Promise((resolve, reject) => {
-    const user = new CognitoUser({
-      Username: email,
-      Pool: userPool,
-    });
-
     const authenticationDetails = new AuthenticationDetails({
       Username: email,
       Password: password,
     });
 
-    user.authenticateUser(authenticationDetails, {
+    const cognitoUser = new CognitoUser({
+      Username: email,
+      Pool: userPool,
+    });
+
+    cognitoUser.authenticateUser(authenticationDetails, {
       onSuccess: (session) => {
         resolve(session);
       },
-      onFailure: (error) => {
-        reject(error);
+
+      onFailure: (err) => {
+        reject(err);
+      },
+
+      newPasswordRequired: () => {
+        reject(
+          new Error(
+            'A new password is required. Please complete the password change process.'
+          )
+        );
       },
     });
   });
 }
 
+/* =========================================================
+   SIGN UP
+========================================================= */
+
 export function signUp(
   email: string,
-  password: string,
-): Promise<ISignUpResult> {
+  password: string
+): Promise<{
+  user: CognitoUser;
+  userConfirmed: boolean;
+}> {
   return new Promise((resolve, reject) => {
     userPool.signUp(
       email,
       password,
       [],
       [],
-      (error, result) => {
-        if (error) {
-          reject(error);
+      (err, result) => {
+        if (err) {
+          reject(err);
           return;
         }
 
         if (!result) {
-          reject(new Error('Signup failed.'));
+          reject(new Error('Unable to create account.'));
           return;
         }
 
-        resolve(result);
-      },
+        resolve({
+          user: result.user,
+          userConfirmed: result.userConfirmed,
+        });
+      }
     );
   });
 }
 
+/* =========================================================
+   CONFIRM SIGN UP
+========================================================= */
+
 export function confirmSignUp(
   email: string,
-  code: string,
+  code: string
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const user = new CognitoUser({
+    const cognitoUser = new CognitoUser({
       Username: email,
       Pool: userPool,
     });
 
-    user.confirmRegistration(code, true, (error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
+    cognitoUser.confirmRegistration(
+      code,
+      true,
+      (err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
 
-      resolve();
-    });
+        resolve();
+      }
+    );
   });
 }
+
+/* =========================================================
+   RESEND SIGN-UP CONFIRMATION CODE
+========================================================= */
 
 export function resendConfirmationCode(
-  email: string,
+  email: string
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const user = new CognitoUser({
+    const cognitoUser = new CognitoUser({
       Username: email,
       Pool: userPool,
     });
 
-    user.resendConfirmationCode((error) => {
-      if (error) {
-        reject(error);
+    cognitoUser.resendConfirmationCode((err) => {
+      if (err) {
+        reject(err);
         return;
       }
 
@@ -107,116 +160,324 @@ export function resendConfirmationCode(
   });
 }
 
+/* =========================================================
+   FORGOT PASSWORD
+========================================================= */
+
 export function forgotPassword(
-  email: string,
+  email: string
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const user = new CognitoUser({
+    const cognitoUser = new CognitoUser({
       Username: email,
       Pool: userPool,
     });
 
-    user.forgotPassword({
+    cognitoUser.forgotPassword({
       onSuccess: () => {
         resolve();
       },
-      onFailure: (error) => {
-        reject(error);
-      },
-      inputVerificationCode: () => {
-        resolve();
+
+      onFailure: (err) => {
+        reject(err);
       },
     });
   });
 }
+
+/* =========================================================
+   CONFIRM FORGOT PASSWORD
+========================================================= */
 
 export function confirmForgotPassword(
   email: string,
   code: string,
-  newPassword: string,
+  newPassword: string
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const user = new CognitoUser({
+    const cognitoUser = new CognitoUser({
       Username: email,
       Pool: userPool,
     });
 
-    user.confirmPassword(code, newPassword, {
-      onSuccess: () => {
-        resolve();
-      },
-      onFailure: (error) => {
-        reject(error);
-      },
+    cognitoUser.confirmPassword(
+      code,
+      newPassword,
+      {
+        onSuccess: () => {
+          resolve();
+        },
+
+        onFailure: (err) => {
+          reject(err);
+        },
+      }
+    );
+  });
+}
+
+/* =========================================================
+   LOGOUT
+========================================================= */
+
+export function logout(): void {
+  const currentUser = userPool.getCurrentUser();
+
+  if (currentUser) {
+    currentUser.signOut();
+  }
+}
+
+/* =========================================================
+   GET CURRENT SESSION
+========================================================= */
+
+export function getCurrentSession(): Promise<CognitoUserSession> {
+  return new Promise((resolve, reject) => {
+    const currentUser = userPool.getCurrentUser();
+
+    if (!currentUser) {
+      reject(new Error('No authenticated user found.'));
+      return;
+    }
+
+    currentUser.getSession((err: Error | null, session: CognitoUserSession | null) => {
+      if (err || !session) {
+        reject(err || new Error('Unable to get user session.'));
+        return;
+      }
+
+      resolve(session);
     });
   });
 }
 
-export function getCurrentSession(): CognitoUserSession | null {
-  const user = userPool.getCurrentUser();
+/* =========================================================
+   GET CURRENT JWT TOKEN
+========================================================= */
 
-  if (!user) {
-    return null;
-  }
+export async function getAccessToken(): Promise<string> {
+  const session = await getCurrentSession();
 
-  let session: CognitoUserSession | null = null;
-
-  user.getSession(
-    (
-      error: Error | null,
-      currentSession: CognitoUserSession | null,
-    ) => {
-      if (!error && currentSession) {
-        session = currentSession;
-      }
-    },
-  );
-
-  return session;
+  return session.getAccessToken().getJwtToken();
 }
 
-export function getIdToken(): string | null {
-  const session = getCurrentSession();
+/* =========================================================
+   GET ID TOKEN
+========================================================= */
 
-  if (!session || !session.isValid()) {
-    return null;
-  }
+export async function getIdToken(): Promise<string> {
+  const session = await getCurrentSession();
 
   return session.getIdToken().getJwtToken();
 }
 
-export function logout(): void {
-  const user = userPool.getCurrentUser();
+/* =========================================================
+   DECODE JWT
+========================================================= */
 
-  if (user) {
-    user.signOut();
+function decodeJwt(token: string): Record<string, unknown> {
+  try {
+    const base64Url = token.split('.')[1];
+
+    if (!base64Url) {
+      return {};
+    }
+
+    const base64 = base64Url
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
+
+    const jsonPayload = decodeURIComponent(
+      window
+        .atob(base64)
+        .split('')
+        .map((character) => {
+          return (
+            '%' +
+            ('00' + character.charCodeAt(0).toString(16)).slice(-2)
+          );
+        })
+        .join('')
+    );
+
+    return JSON.parse(jsonPayload);
+  } catch (error) {
+    console.error('Unable to decode JWT:', error);
+    return {};
   }
 }
 
-export function getRoleFromToken(): string | null {
-  const token = getIdToken();
+/* =========================================================
+   GET ROLE FROM TOKEN
+========================================================= */
 
-  if (!token) {
-    return null;
+export function getRoleFromToken(token: string): UserRole {
+  const payload = decodeJwt(token);
+
+  const groups = payload['cognito:groups'];
+
+  if (Array.isArray(groups)) {
+    if (groups.includes('Admin')) {
+      return 'Admin';
+    }
+
+    if (groups.includes('Manager')) {
+      return 'Manager';
+    }
   }
 
-  try {
-    const payload = JSON.parse(
-      Buffer.from(token.split('.')[1], 'base64').toString('utf-8'),
+  return 'Employee';
+}
+
+/* =========================================================
+   GET CURRENT AUTHENTICATED USER
+========================================================= */
+
+export async function getCurrentUser(): Promise<AuthUser> {
+  const session = await getCurrentSession();
+
+  const idToken = session.getIdToken().getJwtToken();
+
+  const payload = decodeJwt(idToken);
+
+  const email =
+    typeof payload.email === 'string'
+      ? payload.email
+      : '';
+
+  const username =
+    typeof payload['cognito:username'] === 'string'
+      ? payload['cognito:username']
+      : email;
+
+  const groups = payload['cognito:groups'];
+
+  let role: UserRole = 'Employee';
+
+  if (Array.isArray(groups)) {
+    if (groups.includes('Admin')) {
+      role = 'Admin';
+    } else if (groups.includes('Manager')) {
+      role = 'Manager';
+    }
+  }
+
+  return {
+    email,
+    username,
+    role,
+  };
+}
+
+/* =========================================================
+   API BASE URL
+========================================================= */
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
+
+/* =========================================================
+   API REQUEST HELPER
+========================================================= */
+
+async function apiRequest<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
+  if (!API_URL) {
+    throw new Error(
+      'NEXT_PUBLIC_API_URL is missing from your .env.local file.'
     );
-
-    const groups = payload['cognito:groups'];
-
-    if (Array.isArray(groups)) {
-      return groups[0] ?? null;
-    }
-
-    if (typeof groups === 'string') {
-      return groups;
-    }
-
-    return null;
-  } catch {
-    return null;
   }
+
+  const token = await getAccessToken();
+
+  const response = await fetch(
+    `${API_URL}${endpoint}`,
+    {
+      ...options,
+
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        ...(options.headers || {}),
+      },
+    }
+  );
+
+  if (!response.ok) {
+    let message = 'API request failed.';
+
+    try {
+      const errorData = await response.json();
+
+      message =
+        errorData.message ||
+        errorData.error ||
+        message;
+    } catch {
+      // Keep default error message.
+    }
+
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+/* =========================================================
+   PROJECT API FUNCTIONS
+========================================================= */
+
+export async function getProjects() {
+  return apiRequest('/projects');
+}
+
+export async function createProject(data: {
+  name: string;
+  description: string;
+  status?: string;
+}) {
+  return apiRequest('/projects', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateProject(
+  id: string,
+  data: {
+    name?: string;
+    description?: string;
+    status?: string;
+  }
+) {
+  return apiRequest(`/projects/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteProject(id: string) {
+  return apiRequest(`/projects/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+/* =========================================================
+   TEAM API FUNCTIONS
+========================================================= */
+
+export async function getTeam() {
+  return apiRequest('/team');
+}
+
+export async function updateUserRole(
+  userId: string,
+  role: UserRole
+) {
+  return apiRequest(`/team/${userId}/role`, {
+    method: 'PUT',
+    body: JSON.stringify({ role }),
+  });
 }

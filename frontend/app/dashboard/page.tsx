@@ -1,880 +1,338 @@
 'use client';
 
-import {
-  FormEvent,
-  useCallback,
-  useEffect,
-  useState,
-} from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+import Sidebar from '@/components/Sidebar';
 import {
-  getCurrentSession,
-  getIdToken,
-  getRoleFromToken,
-  logout,
-} from '@/lib/auth';
+getDashboard,
+getMe,
+getProjects,
+type DashboardResponse,
+type MeResponse,
+type Project,
+} from '@/lib/api';
 
-type Project = {
-  id: string;
-  name: string;
-  description: string;
-  createdAt: string;
-};
-
-type TeamUser = {
-  id: string;
-  email: string;
-  role: string;
-};
-
-export default function Dashboard() {
+export default function DashboardPage() {
   const router = useRouter();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // ==========================================
-  // GENERAL STATE
-  // ==========================================
+  const [me, setMe] = useState<MeResponse | null>(null);
+const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
+const [projects, setProjects] = useState<Project[]>([]);
+const [loading, setLoading] = useState(true);
+const [error, setError] = useState('');
 
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [role, setRole] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // ==========================================
-  // CREATE PROJECT STATE
-  // ==========================================
-
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [creating, setCreating] = useState(false);
-
-  // ==========================================
-  // EDIT PROJECT STATE
-  // ==========================================
-
-  const [editingProject, setEditingProject] =
-    useState<Project | null>(null);
-
-  const [updating, setUpdating] = useState(false);
-
-  // ==========================================
-  // USER MANAGEMENT STATE
-  // ==========================================
-
-  const [users, setUsers] = useState<TeamUser[]>([]);
-  const [usersLoading, setUsersLoading] = useState(false);
-  const [changingRole, setChangingRole] =
-    useState<string | null>(null);
-
-  // ==========================================
-  // MESSAGES
-  // ==========================================
-
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-
-  // ==========================================
-  // LOAD PROJECTS
-  // ==========================================
-
-  const loadProjects = useCallback(async () => {
-    const token = getIdToken();
-
-    if (!token) {
-      router.push('/');
-      return;
-    }
-
+useEffect(() => {
+  async function loadDashboard() {
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/projects`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(
-          `API request failed: ${response.status}`,
-        );
-      }
-
-      const data = await response.json();
-
-      setProjects(data.projects ?? []);
-    } catch (err) {
-      console.error(err);
-      setError('Unable to load projects.');
-    }
-  }, [router]);
-
-  // ==========================================
-  // LOAD USERS
-  // ADMIN ONLY
-  // ==========================================
-
-  const loadUsers = useCallback(async () => {
-    const token = getIdToken();
-
-    if (!token) {
-      router.push('/');
-      return;
-    }
-
-    setUsersLoading(true);
-
-    try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/users`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.message || 'Unable to load users.',
-        );
-      }
-
-      setUsers(data.users ?? []);
-    } catch (err) {
-      console.error(err);
-
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Unable to load users.');
-      }
-    } finally {
-      setUsersLoading(false);
-    }
-  }, [router]);
-
-  // ==========================================
-  // CHANGE USER ROLE
-  // ADMIN ONLY
-  // ==========================================
-
-  const handleChangeRole = useCallback(
-    async (userId: string, newRole: string) => {
-      const token = getIdToken();
-
-      if (!token) {
-        router.push('/');
-        return;
-      }
-
-      setChangingRole(userId);
+      setLoading(true);
       setError('');
-      setMessage('');
 
-      try {
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/users/${userId}/role`,
-          {
-            method: 'PUT',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              role: newRole,
-            }),
-          },
-        );
+      const [meData, dashboardData, projectData] = await Promise.all([
+        getMe(),
+        getDashboard(),
+        getProjects(),
+      ]);
 
-        const data = await response.json();
+      setMe(meData);
+      setDashboard(dashboardData);
+      setProjects(projectData);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Unable to load the dashboard.';
 
-        if (!response.ok) {
-          throw new Error(
-            data.message || 'Failed to change user role.',
-          );
-        }
-
-        setMessage(
-          'User role updated successfully.',
-        );
-
-        await loadUsers();
-      } catch (err) {
-        console.error(err);
-
-        if (err instanceof Error) {
-          setError(err.message);
-        } else {
-          setError('Failed to change user role.');
-        }
-      } finally {
-        setChangingRole(null);
-      }
-    },
-    [loadUsers, router],
-  );
-
-  // ==========================================
-  // INITIAL DASHBOARD LOAD
-  // ==========================================
-
-  useEffect(() => {
-    async function loadDashboard() {
-      const session = getCurrentSession();
-
-      if (!session || !session.isValid()) {
-        router.push('/');
-        return;
-      }
-
-      const userRole = getRoleFromToken();
-
-      setRole(userRole);
-
-      await loadProjects();
-
-      if (userRole === 'Admin') {
-        await loadUsers();
-      }
-
+      setError(message);
+    } finally {
       setLoading(false);
     }
-
-    loadDashboard();
-  }, [router, loadProjects, loadUsers]);
-
-  // ==========================================
-  // CREATE PROJECT
-  // ==========================================
-
-  async function handleCreateProject(
-    event: FormEvent<HTMLFormElement>,
-  ) {
-    event.preventDefault();
-
-    setCreating(true);
-    setMessage('');
-    setError('');
-
-    const token = getIdToken();
-
-    if (!token) {
-      router.push('/');
-      return;
-    }
-
-    try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/projects`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            name,
-            description,
-          }),
-        },
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.message || 'Failed to create project.',
-        );
-      }
-
-      setName('');
-      setDescription('');
-
-      setMessage(
-        'Project created successfully.',
-      );
-
-      await loadProjects();
-    } catch (err) {
-      console.error(err);
-
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Failed to create project.');
-      }
-    } finally {
-      setCreating(false);
-    }
   }
 
-  // ==========================================
-  // UPDATE PROJECT
-  // ==========================================
+  loadDashboard();
+}, []);
 
-  async function handleUpdateProject(
-    event: FormEvent<HTMLFormElement>,
-  ) {
-    event.preventDefault();
-
-    if (!editingProject) {
-      return;
-    }
-
-    const token = getIdToken();
-
-    if (!token) {
-      router.push('/');
-      return;
-    }
-
-    setUpdating(true);
-    setError('');
-    setMessage('');
-
-    try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/projects/${editingProject.id}`,
-        {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            name: editingProject.name,
-            description: editingProject.description,
-          }),
-        },
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.message || 'Failed to update project.',
-        );
-      }
-
-      setEditingProject(null);
-
-      setMessage(
-        'Project updated successfully.',
-      );
-
-      await loadProjects();
-    } catch (err) {
-      console.error(err);
-
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Failed to update project.');
-      }
-    } finally {
-      setUpdating(false);
-    }
-  }
-
-  // ==========================================
-  // DELETE PROJECT
-  // ==========================================
-
-  async function handleDeleteProject(id: string) {
-    const confirmed = window.confirm(
-      'Are you sure you want to delete this project?',
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    const token = getIdToken();
-
-    if (!token) {
-      router.push('/');
-      return;
-    }
-
-    setError('');
-    setMessage('');
-
-    try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/projects/${id}`,
-        {
-          method: 'DELETE',
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.message || 'Failed to delete project.',
-        );
-      }
-
-      setMessage(
-        'Project deleted successfully.',
-      );
-
-      await loadProjects();
-    } catch (err) {
-      console.error(err);
-
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Failed to delete project.');
-      }
-    }
-  }
-
-  // ==========================================
-  // LOGOUT
-  // ==========================================
-
-  function handleLogout() {
-    logout();
-    router.push('/');
-  }
-
-  // ==========================================
-  // LOADING SCREEN
-  // ==========================================
-
-  if (loading) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-gray-100">
-        <p className="text-gray-600">
-          Loading dashboard...
-        </p>
-      </main>
-    );
-  }
-
-  // ==========================================
-  // PERMISSIONS
-  // ==========================================
-
-  const canCreate =
-    role === 'Admin' || role === 'Manager';
-
-  const canEdit =
-    role === 'Admin' || role === 'Manager';
-
-  const canDelete =
-    role === 'Admin';
-
-  // ==========================================
-  // DASHBOARD
-  // ==========================================
-
+if (loading) {
   return (
-    <main className="min-h-screen bg-gray-100">
+    <div className="flex min-h-screen bg-gray-50">
+      <div className="hidden md:block">
+        <Sidebar role="EMPLOYEE" email="" />
+      </div>
 
-      {/* ==========================================
-          HEADER
-      ========================================== */}
-
-      <header className="border-b bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              TeamGate
-            </h1>
-
-            <p className="text-sm text-gray-500">
-              Project Dashboard
-            </p>
-          </div>
-
-          <div className="flex items-center gap-4">
-
-            <span className="rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700">
-              {role ?? 'Unknown'}
-            </span>
-
-            <button
-              onClick={handleLogout}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              Logout
-            </button>
-
-          </div>
-
+      <main className="flex flex-1 items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-gray-200 border-t-gray-900" />
+          <p className="mt-4 text-sm text-gray-500">Loading dashboard...</p>
         </div>
-      </header>
+      </main>
+    </div>
+  );
+}
 
-      {/* ==========================================
-          MAIN CONTENT
-      ========================================== */}
+if (error || !me) {
+  return (
+    <div className="flex min-h-screen bg-gray-50">
+      <div className="hidden md:block">
+        <Sidebar role="EMPLOYEE" email="" />
+      </div>
 
-      <section className="mx-auto max-w-6xl px-6 py-8">
+      <main className="flex flex-1 items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-2xl border border-red-200 bg-white p-8 text-center shadow-sm">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+            <span className="text-xl text-red-600">!</span>
+          </div>
 
-        {/* PAGE TITLE */}
+          <h1 className="mt-4 text-xl font-semibold text-gray-900">
+            Unable to load dashboard
+          </h1>
 
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-900">
-            Projects
-          </h2>
-
-          <p className="mt-1 text-gray-600">
-            View the projects available to your team.
+          <p className="mt-2 text-sm text-gray-500">
+            {error || 'Your account information could not be loaded.'}
           </p>
+
+          <button
+            type="button"
+            onClick={() => router.refresh()}
+            className="mt-6 rounded-lg bg-gray-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-gray-800"
+          >
+            Try again
+          </button>
         </div>
+      </main>
+    </div>
+  );
+}
 
-        {/* ==========================================
-            SUCCESS MESSAGE
-        ========================================== */}
+const totalProjects =
+dashboard?.stats?.totalProjects ?? projects.length;
 
-        {message && (
-          <div className="mb-6 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700">
-            {message}
+const activeProjects =
+dashboard?.stats?.activeProjects ??
+projects.filter(
+(project) =>
+project.status?.toLowerCase() === 'active',
+).length;
+
+const completedProjects =
+dashboard?.stats?.completedProjects ??
+projects.filter(
+(project) =>
+project.status?.toLowerCase() === 'completed',
+).length;
+
+const roleLabel =
+  me.workspace.role === 'ADMIN'
+    ? 'Admin'
+    : me.workspace.role === 'MANAGER'
+      ? 'Manager'
+      : 'Employee';
+
+return (
+  <div className="min-h-screen bg-gray-50">
+    <Sidebar
+      role={me.workspace.role}
+      email={me.user.email}
+      onToggle={(open) => setSidebarOpen(open)}
+    />
+
+    <main className={`min-w-0 flex-1 transition-all duration-300 ${sidebarOpen ? 'lg:pl-[318px]' : 'pl-0'}`}>
+      <div className="border-b border-gray-200 bg-white">
+        <div className="mx-auto max-w-7xl px-6 py-6 lg:px-8">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-500">Dashboard</p>
+
+              <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-900">
+                Welcome back
+              </h1>
+
+              <p className="mt-1 text-sm text-gray-500">
+                Here&apos;s what&apos;s happening in your workspace.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-2">
+                <p className="text-xs text-gray-500">Your role</p>
+
+                <p className="mt-0.5 text-sm font-semibold text-gray-900">
+                  {roleLabel}
+                </p>
+              </div>
+            </div>
           </div>
-        )}
+        </div>
+      </div>
 
-        {/* ==========================================
-            ERROR MESSAGE
-        ========================================== */}
+      <div className="mx-auto max-w-7xl px-6 py-8 lg:px-8">
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            <p className="text-sm font-medium text-gray-500">Total projects</p>
 
-        {error && (
-          <div className="mb-6 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
+            <p className="mt-2 text-3xl font-bold text-gray-900">{totalProjects}</p>
+
+            <p className="mt-2 text-xs text-gray-500">Projects in your workspace</p>
           </div>
-        )}
 
-        {/* ==========================================
-            CREATE PROJECT
-        ========================================== */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            <p className="text-sm font-medium text-gray-500">Active projects</p>
 
-        {canCreate && (
-          <div className="mb-8 rounded-xl bg-white p-6 shadow">
+            <p className="mt-2 text-3xl font-bold text-gray-900">{activeProjects}</p>
 
-            <h3 className="mb-4 text-xl font-semibold text-gray-900">
-              Create Project
-            </h3>
+            <p className="mt-2 text-xs text-gray-500">Currently in progress</p>
+          </div>
 
-            <form
-              onSubmit={handleCreateProject}
-              className="space-y-4"
-            >
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            <p className="text-sm font-medium text-gray-500">Completed projects</p>
 
+            <p className="mt-2 text-3xl font-bold text-gray-900">{completedProjects}</p>
+
+            <p className="mt-2 text-xs text-gray-500">Successfully completed</p>
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+            <div className="flex flex-col gap-3 border-b border-gray-200 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <label
-                  htmlFor="project-name"
-                  className="mb-2 block text-sm font-medium text-gray-700"
-                >
-                  Project Name
-                </label>
+                <h2 className="text-lg font-semibold text-gray-900">Workspace</h2>
 
-                <input
-                  id="project-name"
-                  type="text"
-                  value={name}
-                  onChange={(event) =>
-                    setName(event.target.value)
-                  }
-                  placeholder="e.g. Employee Portal"
-                  required
-                  className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-                />
+                <p className="mt-1 text-sm text-gray-500">
+                  Your current workspace information.
+                </p>
+              </div>
+
+              <span className="inline-flex w-fit items-center rounded-full border border-purple-200 bg-purple-100 px-3 py-1 text-xs font-bold text-purple-700">
+                {roleLabel}
+              </span>
+            </div>
+
+            <div className="grid gap-6 p-6 md:grid-cols-2">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                  Workspace name
+                </p>
+
+                <p className="mt-2 text-sm font-semibold text-gray-900">
+                  {me.workspace.name}
+                </p>
               </div>
 
               <div>
-                <label
-                  htmlFor="project-description"
-                  className="mb-2 block text-sm font-medium text-gray-700"
-                >
-                  Description
-                </label>
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                  Workspace status
+                </p>
 
-                <textarea
-                  id="project-description"
-                  value={description}
-                  onChange={(event) =>
-                    setDescription(event.target.value)
-                  }
-                  placeholder="Describe the project..."
-                  rows={4}
-                  className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-                />
+                <p className="mt-2 text-sm font-semibold text-gray-900">
+                  {me.workspace.isOwner ? 'Workspace owner' : 'Workspace member'}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                  Workspace ID
+                </p>
+
+                <p className="mt-2 break-all text-xs text-gray-500">
+                  {me.workspace.workspaceId ?? me.workspace.id}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                  Account email
+                </p>
+
+                <p className="mt-2 break-all text-sm text-gray-700">{me.user.email}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-5">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Recent projects</h2>
+
+                <p className="mt-1 text-sm text-gray-500">
+                  Projects available in your workspace.
+                </p>
               </div>
 
               <button
-                type="submit"
-                disabled={creating}
-                className="rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                type="button"
+                onClick={() => router.push('/projects')}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
               >
-                {creating
-                  ? 'Creating...'
-                  : 'Create Project'}
+                View all
               </button>
+            </div>
 
-            </form>
+            {projects.length === 0 ? (
+              <div className="px-6 py-12 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
+                  <span className="text-lg text-gray-400">+</span>
+                </div>
 
-          </div>
-        )}
+                <h3 className="mt-4 text-sm font-semibold text-gray-900">No projects yet</h3>
 
-        {/* ==========================================
-            EDIT PROJECT
-        ========================================== */}
+                <p className="mt-1 text-sm text-gray-500">
+                  Create a project to get started.
+                </p>
 
-        {editingProject && (
-          <div className="mb-8 rounded-xl bg-white p-6 shadow">
-
-            <h3 className="mb-4 text-xl font-semibold text-gray-900">
-              Edit Project
-            </h3>
-
-            <form
-              onSubmit={handleUpdateProject}
-              className="space-y-4"
-            >
-
-              <div>
-                <label
-                  htmlFor="edit-project-name"
-                  className="mb-2 block text-sm font-medium text-gray-700"
-                >
-                  Project Name
-                </label>
-
-                <input
-                  id="edit-project-name"
-                  type="text"
-                  value={editingProject.name}
-                  onChange={(event) =>
-                    setEditingProject({
-                      ...editingProject,
-                      name: event.target.value,
-                    })
-                  }
-                  required
-                  className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="edit-project-description"
-                  className="mb-2 block text-sm font-medium text-gray-700"
-                >
-                  Description
-                </label>
-
-                <textarea
-                  id="edit-project-description"
-                  value={editingProject.description}
-                  onChange={(event) =>
-                    setEditingProject({
-                      ...editingProject,
-                      description: event.target.value,
-                    })
-                  }
-                  rows={4}
-                  className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-                />
-              </div>
-
-              <div className="flex gap-3">
-
-                <button
-                  type="submit"
-                  disabled={updating}
-                  className="rounded-lg bg-green-600 px-6 py-3 font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {updating
-                    ? 'Saving...'
-                    : 'Save Changes'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setEditingProject(null)
-                  }
-                  className="rounded-lg border border-gray-300 px-6 py-3 font-semibold text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-
-              </div>
-
-            </form>
-
-          </div>
-        )}
-
-        {/* ==========================================
-            ADMIN USER MANAGEMENT
-        ========================================== */}
-
-        {role === 'Admin' && (
-          <div className="mb-8 rounded-xl bg-white p-6 shadow">
-
-            <h3 className="mb-2 text-xl font-semibold text-gray-900">
-              User Management
-            </h3>
-
-            <p className="mb-6 text-sm text-gray-600">
-              Admins can change the role of team members.
-            </p>
-
-            {usersLoading ? (
-
-              <p className="text-gray-500">
-                Loading users...
-              </p>
-
-            ) : users.length === 0 ? (
-
-              <p className="text-gray-500">
-                No users found.
-              </p>
-
-            ) : (
-
-              <div className="space-y-4">
-
-                {users.map((user) => (
-
-                  <div
-                    key={user.id}
-                    className="flex flex-col gap-4 rounded-lg border border-gray-200 p-4 md:flex-row md:items-center md:justify-between"
+                {(me.workspace.role === 'ADMIN' ||
+                me.workspace.role === 'MANAGER') && (
+                  <button
+                    type="button"
+                    onClick={() => router.push('/projects')}
+                    className="mt-5 rounded-lg bg-gray-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-gray-800"
                   >
+                    Create project
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {projects.slice(0, 5).map((project) => (
+                  <div
+                    key={project.id}
+                    className="flex flex-col gap-3 px-6 py-5 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <h3 className="truncate text-sm font-semibold text-gray-900">
+                        {project.name}
+                      </h3>
 
-                    <div>
-                      <p className="font-medium text-gray-900">
-                        {user.email}
-                      </p>
-
-                      <p className="text-sm text-gray-500">
-                        Current role: {user.role}
+                      <p className="mt-1 truncate text-sm text-gray-500">
+                        {project.description ?? 'No description'}
                       </p>
                     </div>
 
-                    <select
-                      value={user.role}
-                      disabled={
-                        changingRole === user.id
-                      }
-                      onChange={(event) =>
-                        handleChangeRole(
-                          user.id,
-                          event.target.value,
-                        )
-                      }
-                      className="rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <option value="Admin">
-                        Admin
-                      </option>
+                    <div className="flex shrink-0 items-center gap-3">
+                      {project.status && (
+                        <span className="rounded-full border border-amber-200 bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
+                          {project.status}
+                        </span>
+                      )}
 
-                      <option value="Manager">
-                        Manager
-                      </option>
-
-                      <option value="Employee">
-                        Employee
-                      </option>
-                    </select>
-
+                      <button
+                        type="button"
+                        onClick={() => router.push('/projects')}
+                        className="text-sm font-medium text-gray-900 hover:underline"
+                      >
+                        Open
+                      </button>
+                    </div>
                   </div>
-
                 ))}
-
               </div>
-
             )}
-
           </div>
-        )}
-
-        {/* ==========================================
-            PROJECT LIST
-        ========================================== */}
-
-        {projects.length === 0 ? (
-
-          <div className="rounded-xl bg-white p-8 text-center shadow">
-            <p className="text-gray-500">
-              No projects found.
-            </p>
-          </div>
-
-        ) : (
-
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-
-            {projects.map((project) => (
-
-              <div
-                key={project.id}
-                className="rounded-xl bg-white p-6 shadow"
-              >
-
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {project.name}
-                </h3>
-
-                <p className="mt-2 text-sm text-gray-600">
-                  {project.description ||
-                    'No description provided.'}
-                </p>
-
-                <p className="mt-4 text-xs text-gray-400">
-                  Created:{' '}
-                  {new Date(
-                    project.createdAt,
-                  ).toLocaleString()}
-                </p>
-
-                {/* EDIT */}
-
-                {canEdit && (
-                  <button
-                    onClick={() =>
-                      setEditingProject(project)
-                    }
-                    className="mt-4 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                  >
-                    Edit
-                  </button>
-                )}
-
-                {/* DELETE */}
-
-                {canDelete && (
-                  <button
-                    onClick={() =>
-                      handleDeleteProject(project.id)
-                    }
-                    className="mt-2 w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
-                  >
-                    Delete
-                  </button>
-                )}
-
-              </div>
-
-            ))}
-
-          </div>
-
-        )}
-
-      </section>
-
+        </section>
+      </div>
     </main>
-  );
+  </div>
+);
 }
