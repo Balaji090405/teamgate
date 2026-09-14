@@ -21,8 +21,6 @@ interface ExtractedDocument {
   fileName: string;
   fileType: string;
   fileData: string;
-  extractedText: string;
-  base64Data?: string;
   mimeType?: string;
 }
 
@@ -34,56 +32,6 @@ export default function AISummarizerChat({ projects, role }: AISummarizerChatPro
   const [zoomLevel, setZoomLevel] = useState(100);
   const [pageIndex] = useState(1);
 
-  // Clean binary PDF tokens from raw extracted text
-  function cleanPdfText(rawText: string, fileName: string): string {
-    if (!rawText) return `Document: ${fileName}`;
-
-    // Extract text inside parentheses: (Text String)
-    const matches = rawText.match(/\(([^()\\]|\\[\s\S])*\)/g);
-    const textPieces: string[] = [];
-
-    if (matches) {
-      for (const m of matches) {
-        const clean = m
-          .slice(1, -1)
-          .replace(/\\([()\\])/g, '$1')
-          .replace(/\\n/g, ' ')
-          .replace(/\\r/g, ' ')
-          .replace(/\\t/g, ' ')
-          .trim();
-
-        if (
-          clean.length >= 2 &&
-          /[a-zA-Z0-9]/.test(clean) &&
-          !/^(FlateDecode|Font|DeviceRGB|Helvetica|Times|Type1|TrueType|Catalog|Pages|Parent|FontDescriptor|ProcSet|Encoding|Widths|Metadata|Producer|CreationDate|ModDate|HeadlessChrome|AppleWebKit|Win64|Windows|Safari|Mozilla|Skia|PDF|endobj|stream|endstream|xref|trailer|startxref)/i.test(
-            clean,
-          )
-        ) {
-          textPieces.push(clean);
-        }
-      }
-    }
-
-    const words = rawText
-      .replace(/[^\x20-\x7E]/g, ' ')
-      .split(/\s+/)
-      .filter(
-        (w) =>
-          w.length >= 3 &&
-          /^[a-zA-Z0-9_.\-@:()/#]{3,}$/.test(w) &&
-          !/^(FlateDecode|Catalog|Pages|Parent|FontDescriptor|ProcSet|Encoding|Widths|Metadata|Producer|CreationDate|ModDate|HeadlessChrome|AppleWebKit|Win64|Windows|Safari|Mozilla|Skia|PDF|endobj|stream|endstream|xref|trailer)/i.test(
-            w,
-          ),
-      );
-
-    const combined = Array.from(new Set([...textPieces, ...words])).join(' ').trim();
-    if (combined.length > 10) {
-      return combined.slice(0, 3500);
-    }
-
-    return `Document Asset: ${fileName} (Indexed via TeamGate PDF RAG Parser)`;
-  }
-
   // Extract uploaded documents across projects
   function extractDocuments(): ExtractedDocument[] {
     const docs: ExtractedDocument[] = [];
@@ -94,35 +42,13 @@ export default function AISummarizerChat({ projects, role }: AISummarizerChatPro
         const ft = project.attachment.fileType || 'application/pdf';
         const fd = project.attachment.fileData || '';
 
-        let extractedText = '';
-        let mimeType = ft;
-        let base64Data = '';
-
-        if (fd.includes('base64,')) {
-          const parts = fd.split('base64,');
-          mimeType = parts[0].replace('data:', '').replace(';', '').trim() || ft;
-          base64Data = parts[1];
-
-          try {
-            const raw = atob(base64Data);
-            const clean = raw.replace(/[^\x20-\x7E\x0A\x0D\x09]/g, ' ').replace(/\s+/g, ' ').trim();
-            if (clean.length > 5) {
-              extractedText = cleanPdfText(clean, fn);
-            }
-          } catch {
-            extractedText = `Document: ${fn}`;
-          }
-        }
-
         docs.push({
           projectId: project.id,
           projectName: project.name,
           fileName: fn,
           fileType: ft,
           fileData: fd,
-          extractedText: extractedText || `Document: ${fn}`,
-          base64Data,
-          mimeType,
+          mimeType: ft,
         });
       }
     }
@@ -156,17 +82,17 @@ export default function AISummarizerChat({ projects, role }: AISummarizerChatPro
   async function handleSummarizeDocument() {
     if (!activeDoc) return;
     setIsSummarizing(true);
-
     let summary = '';
 
-    // 1. Try Groq API (Llama 3.3 70B)
     try {
       const resp = await fetch('/api/groq', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode: 'summary',
-          documentText: `File Name: ${activeDoc.fileName}\nProject Name: ${activeDoc.projectName}\nContent:\n${activeDoc.extractedText}`,
+          fileName: activeDoc.fileName,
+          fileType: activeDoc.fileType,
+          fileData: activeDoc.fileData,
         }),
       });
 
@@ -174,60 +100,22 @@ export default function AISummarizerChat({ projects, role }: AISummarizerChatPro
         const data = await resp.json();
         if (data.reply) {
           summary = data.reply;
+        } else if (data.error) {
+          summary = `⚠️ ${data.error}`;
+        }
+      } else {
+        const errData = await resp.json().catch(() => ({}));
+        if (errData.error) {
+          summary = `⚠️ ${errData.error}`;
         }
       }
     } catch (err) {
       console.error('Groq API route summary error:', err);
-    }
-
-    // 2. Fallback to direct Groq API using Groq Llama 3.3 70B model if server route returned empty
-    if (!summary) {
-      const groqKey = process.env.NEXT_PUBLIC_GROQ_API_KEY || process.env.GROQ_API_KEY;
-      if (groqKey && activeDoc) {
-        try {
-          const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${groqKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'openai/gpt-oss-20b',
-              messages: [
-                {
-                  role: 'system',
-                  content:
-                    'You are an expert document summarizer for TeamGate. Provide a clear, professional executive summary focusing on key objectives, requirements, and deliverables. Format as clean text. Do NOT output raw PDF binary markers, zlib code tokens, or bracket headers.',
-                },
-                {
-                  role: 'user',
-                  content: `Document Information:\nFile Name: ${activeDoc.fileName}\nProject Name: ${activeDoc.projectName}\nContent:\n${activeDoc.extractedText}\n\nPlease summarize the key scope, task requirements, and purpose.`,
-                },
-              ],
-              temperature: 0.1,
-            }),
-          });
-
-          if (resp.ok) {
-            const data = await resp.json();
-            summary = data.choices?.[0]?.message?.content?.trim() || '';
-          }
-        } catch (err) {
-          console.error('Groq direct API summary fallback error:', err);
-        }
-      }
+      summary = '⚠️ Network error communicating with server.';
     }
 
     if (!summary) {
-      const docTitle = activeDoc.fileName.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
-      summary = `📄 Executive Summary: ${activeDoc.fileName}
-Project: ${activeDoc.projectName}
-Format: ${activeDoc.fileType}
-
-Key Topics & Derived Scope:
-• Document Subject: ${docTitle}
-• Extracted Content Brief: "${activeDoc.extractedText.slice(0, 250)}..."
-• Status: Document parsed & grounded for AI Chatbot Q&A.`;
+      summary = 'Unable to generate summary for the document.';
     }
 
     setSummaryOutput(summary);
@@ -264,7 +152,6 @@ Key Topics & Derived Scope:
     if (!queryText) setInputQuery('');
     setIsThinking(true);
 
-    // If no document exists at all
     if (!activeDoc && uploadedDocs.length === 0) {
       setTimeout(() => {
         setMessages((prev) => [
@@ -283,7 +170,6 @@ Key Topics & Derived Scope:
 
     let aiReply = '';
 
-    // 1. Try Groq API Route (Llama 3.3 70B)
     if (activeDoc) {
       try {
         const resp = await fetch('/api/groq', {
@@ -292,7 +178,9 @@ Key Topics & Derived Scope:
           body: JSON.stringify({
             mode: 'qa',
             userQuery: textToSend,
-            documentText: `Target Document: ${activeDoc.fileName} (Project: ${activeDoc.projectName})\nContent:\n${activeDoc.extractedText}`,
+            fileName: activeDoc.fileName,
+            fileType: activeDoc.fileType,
+            fileData: activeDoc.fileData,
           }),
         });
 
@@ -300,6 +188,13 @@ Key Topics & Derived Scope:
           const data = await resp.json();
           if (data.reply) {
             aiReply = data.reply;
+          } else if (data.error) {
+            aiReply = `⚠️ ${data.error}`;
+          }
+        } else {
+          const errData = await resp.json().catch(() => ({}));
+          if (errData.error) {
+            aiReply = `⚠️ ${errData.error}`;
           }
         }
       } catch (err) {
@@ -307,98 +202,31 @@ Key Topics & Derived Scope:
       }
     }
 
-    // 2. Direct Groq API Fallback using Groq Llama 3.3 70B model if server route returned empty
-    if (!aiReply && activeDoc) {
-      const groqKey = process.env.NEXT_PUBLIC_GROQ_API_KEY || process.env.GROQ_API_KEY;
-      if (groqKey) {
-        try {
-          const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${groqKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'openai/gpt-oss-20b',
-              messages: [
-                {
-                  role: 'system',
-                  content: `You are a Document Retrieval Chatbot for TeamGate.
-STRICT MANDATORY RULES:
-1. You MUST answer the user's question ONLY using facts contained in the uploaded document provided below.
-2. If the user's question can be answered, provide a clear structured answer. If applicable, output a Markdown Table (| Step | Layer | Purpose |) followed by explanatory text.
-3. If the requested information is NOT explicitly found or derived from the uploaded document, reply ONLY with the exact sentence:
-"No response is found from the document."
-4. Do NOT use outside knowledge. If missing, output EXACTLY: "No response is found from the document."`,
-                },
-                {
-                  role: 'user',
-                  content: `Target Document: ${activeDoc.fileName} (Project: ${activeDoc.projectName})\nExtracted Content:\n${activeDoc.extractedText}\n\nUser Question: ${textToSend}`,
-                },
-              ],
-              temperature: 0.1,
-            }),
-          });
-
-          if (resp.ok) {
-            const data = await resp.json();
-            const rawText = data.choices?.[0]?.message?.content?.trim() || '';
-            if (rawText) {
-              aiReply = rawText;
-            }
-          }
-        } catch (err) {
-          console.error('Groq direct API QA fallback error:', err);
-        }
-      }
-    }
-
-    // Fallback Local RAG Answer Engine
-    if (!aiReply && activeDoc) {
-      const qLower = textToSend.toLowerCase();
-      const docTextLower = activeDoc.extractedText.toLowerCase();
-
-      // Check if user is asking for steps / 2nd step / layers in document
-      if (
-        qLower.includes('2nd step') ||
-        qLower.includes('second step') ||
-        (qLower.includes('step') && qLower.includes('production'))
-      ) {
-        aiReply = `| Step | Layer | Purpose |
-| --- | --- | --- |
-| 2 | FastAPI | The backend framework that handles application logic, API endpoints, and asynchronous calls to services such as LLMs, databases, and microservices. It validates requests with type hints, supports async processing, and generates interactive API docs. |
-
-The second step in building a production-grade AI application is to set up the FastAPI backend. This layer sits between the frontend (Next.js) and various data and AI services, orchestrating requests, handling authentication, and communicating with MongoDB, DynamoDB, Groq, and other components.`;
-      } else if (
-        qLower.includes(activeDoc.fileName.toLowerCase()) ||
-        docTextLower.includes(qLower) ||
-        qLower.includes('summary') ||
-        qLower.includes('what is') ||
-        qLower.includes('explain')
-      ) {
-        aiReply = `Information retrieved from document ${activeDoc.fileName}:\n• Project: ${activeDoc.projectName}\n• Content Excerpt: "${activeDoc.extractedText.slice(0, 350)}"`;
-      } else {
-        // STRICT DENIAL
-        aiReply = 'No response is found from the document.';
-      }
-    }
-
     if (!aiReply) {
       aiReply = 'No response is found from the document.';
     }
 
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          sender: 'ai',
-          text: aiReply,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        },
-      ]);
-      setIsThinking(false);
-    }, 400);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: (Date.now() + 1).toString(),
+        sender: 'ai',
+        text: aiReply,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      },
+    ]);
+    setIsThinking(false);
+  }
+
+  function formatMarkdown(str: string) {
+    if (!str) return null;
+    const parts = str.split(/(\*\*[^*]+\*\*)/g);
+    return parts.map((part, idx) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={idx} className="font-bold text-slate-900">{part.slice(2, -2)}</strong>;
+      }
+      return part;
+    });
   }
 
   // Render Table / Formatted Response in Chat Bubble
@@ -436,7 +264,7 @@ The second step in building a production-grade AI application is to set up the F
 
       return (
         <div className="space-y-3">
-          {textBefore && <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">{textBefore}</p>}
+          {textBefore && <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">{formatMarkdown(textBefore)}</p>}
 
           <div className="overflow-hidden rounded-xl border border-purple-200 bg-white shadow-xs">
             <table className="w-full text-left text-xs">
@@ -444,7 +272,7 @@ The second step in building a production-grade AI application is to set up the F
                 <tr>
                   {headers.map((h, i) => (
                     <th key={i} className="px-3.5 py-2.5">
-                      {h}
+                      {formatMarkdown(h)}
                     </th>
                   ))}
                 </tr>
@@ -454,7 +282,7 @@ The second step in building a production-grade AI application is to set up the F
                   <tr key={rIdx} className="hover:bg-purple-50/40">
                     {row.map((cell, cIdx) => (
                       <td key={cIdx} className="px-3.5 py-2.5">
-                        {cell}
+                        {formatMarkdown(cell)}
                       </td>
                     ))}
                   </tr>
@@ -463,12 +291,12 @@ The second step in building a production-grade AI application is to set up the F
             </table>
           </div>
 
-          {textAfter && <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">{textAfter}</p>}
+          {textAfter && <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">{formatMarkdown(textAfter)}</p>}
         </div>
       );
     }
 
-    return <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">{text.replace(/\*\*/g, '')}</p>;
+    return <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">{formatMarkdown(text)}</p>;
   }
 
   return (
@@ -593,7 +421,7 @@ The second step in building a production-grade AI application is to set up the F
                   ) : (
                     <div className="w-full h-[450px] overflow-y-auto rounded-lg bg-white p-6 text-xs text-slate-800 font-mono whitespace-pre-wrap">
                       <p className="font-bold text-slate-900 border-b pb-2 mb-3">📄 {activeDoc.fileName}</p>
-                      {activeDoc.extractedText}
+                      Document preview ready
                     </div>
                   )
                 ) : (
@@ -729,7 +557,7 @@ The second step in building a production-grade AI application is to set up the F
           >
             <input
               type="text"
-              placeholder="what is 2nd step involved in production ai application"
+              placeholder="Ask any question grounded in the document..."
               value={inputQuery}
               onChange={(e) => setInputQuery(e.target.value)}
               className="flex-1 rounded-xl border border-purple-200 bg-white px-4 py-2.5 text-xs text-slate-900 outline-none transition focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
