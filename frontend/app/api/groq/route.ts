@@ -1,15 +1,24 @@
 import { NextResponse } from 'next/server';
-import { PDFParse } from 'pdf-parse';
-import { GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { pathToFileURL } from 'url';
-import { createRequire } from 'module';
+import zlib from 'zlib';
 
-try {
-  const req = createRequire(import.meta.url);
-  const workerFile = req.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
-  GlobalWorkerOptions.workerSrc = pathToFileURL(workerFile).href;
-} catch (err) {
-  console.error('Failed to configure pdfjs workerSrc:', err);
+// Polyfill DOMMatrix for Node.js serverless runtime (Vercel / AWS Lambda)
+if (typeof globalThis.DOMMatrix === 'undefined') {
+  class DOMMatrixMock {
+    a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
+    constructor(init?: unknown) {
+      if (Array.isArray(init) && init.length >= 6) {
+        this.a = init[0]; this.b = init[1]; this.c = init[2];
+        this.d = init[3]; this.e = init[4]; this.f = init[5];
+      }
+    }
+    multiply() { return this; }
+    translate() { return this; }
+    scale() { return this; }
+    rotate() { return this; }
+    inverse() { return this; }
+    transformPoint(p: unknown) { return p; }
+  }
+  (globalThis as unknown as { DOMMatrix: typeof DOMMatrixMock }).DOMMatrix = DOMMatrixMock;
 }
 
 interface DocumentPage {
@@ -32,6 +41,72 @@ const STOP_WORDS = new Set([
   'give', 'find', 'does', 'do', 'did', 'has', 'have', 'had', 'from', 'out', 'up', 'down',
 ]);
 
+// Pure JS PDF Stream Text Extractor (100% serverless compatible, zero worker file dependencies)
+function extractPdfTextPureJs(pdfBuffer: Buffer): DocumentPage[] {
+  const pages: DocumentPage[] = [];
+  const pdfString = pdfBuffer.toString('binary');
+  const streamRegex = /stream[\r\n]+([\s\S]*?)[\r\n]+endstream/gi;
+  let match: RegExpExecArray | null;
+  let pageNum = 1;
+
+  while ((match = streamRegex.exec(pdfString)) !== null) {
+    const rawStream = match[1];
+    let decompressed = '';
+
+    try {
+      const streamBuf = Buffer.from(rawStream, 'binary');
+      decompressed = zlib.inflateSync(streamBuf).toString('binary');
+    } catch {
+      decompressed = rawStream;
+    }
+
+    if (decompressed) {
+      const textPieces: string[] = [];
+
+      // Match (text) Tj or (text) TJ text instructions
+      const tjMatches = decompressed.match(/\(([^()\\]|\\[\s\S])*\)\s*T[jJ]/g) || [];
+      for (const m of tjMatches) {
+        const clean = m.replace(/\)\s*T[jJ]$/, '').slice(1).replace(/\\([()\\])/g, '$1').trim();
+        if (clean.length >= 1 && !/^(FlateDecode|Font|DeviceRGB|Helvetica|Times|Type1|TrueType|Catalog|Pages)/i.test(clean)) {
+          textPieces.push(clean);
+        }
+      }
+
+      // Match [(text) (text)] TJ array instructions
+      const tjArrayMatches = decompressed.match(/\[\s*(\(([^()\\]|\\[\s\S])*\)\s*|-?\d+\s*)+\]\s*TJ/g) || [];
+      for (const m of tjArrayMatches) {
+        const subPieces = m.match(/\(([^()\\]|\\[\s\S])*\)/g) || [];
+        for (const sub of subPieces) {
+          const clean = sub.slice(1, -1).replace(/\\([()\\])/g, '$1').trim();
+          if (clean.length >= 1 && !/^(FlateDecode|Font|DeviceRGB|Helvetica|Times|Type1|TrueType|Catalog|Pages)/i.test(clean)) {
+            textPieces.push(clean);
+          }
+        }
+      }
+
+      // Fallback text string extraction inside decompressed stream
+      if (textPieces.length === 0) {
+        const generalMatches = decompressed.match(/\(([^()\\]|\\[\s\S])*\)/g) || [];
+        for (const m of generalMatches) {
+          const clean = m.slice(1, -1).replace(/\\([()\\])/g, '$1').trim();
+          if (clean.length >= 2 && /[a-zA-Z0-9]/.test(clean) && !/^(FlateDecode|Font|DeviceRGB|Helvetica|Times|Type1|TrueType|Catalog|Pages)/i.test(clean)) {
+            textPieces.push(clean);
+          }
+        }
+      }
+
+      if (textPieces.length > 0) {
+        const pageText = textPieces.join(' ').replace(/\s+/g, ' ').trim();
+        if (pageText.length > 5) {
+          pages.push({ pageNumber: pageNum++, text: pageText });
+        }
+      }
+    }
+  }
+
+  return pages;
+}
+
 // Extract page-by-page text from PDF buffer or plain text string
 async function extractDocumentPages(
   fileData: string | undefined,
@@ -39,7 +114,7 @@ async function extractDocumentPages(
   fileType: string | undefined,
   documentText: string | undefined
 ): Promise<DocumentPage[]> {
-  const pages: DocumentPage[] = [];
+  let pages: DocumentPage[] = [];
 
   let base64String = '';
   if (fileData) {
@@ -55,30 +130,42 @@ async function extractDocumentPages(
     (fileType && fileType.toLowerCase().includes('pdf'));
 
   if (base64String && isPdf) {
+    // 1. Try Pure JS stream extraction first (Fast, 100% serverless native Node.js zlib)
     try {
       const buffer = Buffer.from(base64String, 'base64');
-      const parser = new PDFParse({ data: new Uint8Array(buffer) });
-      const res = await parser.getText();
-      await parser.destroy();
-
-      if (res && res.pages && res.pages.length > 0) {
-        for (const p of res.pages) {
-          const cleaned = (p.text || '').replace(/[^\x20-\x7E\x0A\x0D\x09]/g, ' ').replace(/[ \t]+/g, ' ').trim();
-          if (cleaned.length > 0) {
-            pages.push({ pageNumber: p.num || (pages.length + 1), text: cleaned });
-          }
-        }
-      } else if (res && res.text) {
-        const cleaned = res.text.replace(/[^\x20-\x7E\x0A\x0D\x09]/g, ' ').replace(/[ \t]+/g, ' ').trim();
-        if (cleaned) {
-          pages.push({ pageNumber: 1, text: cleaned });
-        }
-      }
+      pages = extractPdfTextPureJs(buffer);
     } catch (err) {
-      console.error('PDF parsing error via PDFParse class:', err);
+      console.error('Pure JS stream extraction error:', err);
     }
 
-    // Fallback printable text extraction if PDFParse returns no text
+    // 2. Try pdf-parse package via dynamic import if pure JS returned 0 pages
+    if (pages.length === 0) {
+      try {
+        const { PDFParse } = await import('pdf-parse');
+        const buffer = Buffer.from(base64String, 'base64');
+        const parser = new PDFParse({ data: new Uint8Array(buffer) });
+        const res = await parser.getText();
+        await parser.destroy();
+
+        if (res && res.pages && res.pages.length > 0) {
+          for (const p of res.pages) {
+            const cleaned = (p.text || '').replace(/[^\x20-\x7E\x0A\x0D\x09]/g, ' ').replace(/[ \t]+/g, ' ').trim();
+            if (cleaned.length > 0) {
+              pages.push({ pageNumber: p.num || (pages.length + 1), text: cleaned });
+            }
+          }
+        } else if (res && res.text) {
+          const cleaned = res.text.replace(/[^\x20-\x7E\x0A\x0D\x09]/g, ' ').replace(/[ \t]+/g, ' ').trim();
+          if (cleaned) {
+            pages.push({ pageNumber: 1, text: cleaned });
+          }
+        }
+      } catch (err) {
+        console.error('PDFParse class extraction error:', err);
+      }
+    }
+
+    // 3. Fallback raw string pattern matcher
     if (pages.length === 0) {
       try {
         const buffer = Buffer.from(base64String, 'base64');
@@ -182,7 +269,7 @@ export async function POST(req: Request) {
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'GROQ_API_KEY environment variable is not set on the server.' },
+        { error: 'GROQ_API_KEY environment variable is not set on the server. Please set GROQ_API_KEY in Vercel project environment variables.' },
         { status: 500 }
       );
     }
