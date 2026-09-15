@@ -31,6 +31,8 @@ export default function TeamPage() {
   const [inviteRole, setInviteRole] = useState<Role>('EMPLOYEE');
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState('');
+  const [createdInviteUrl, setCreatedInviteUrl] = useState('');
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     loadTeam();
@@ -137,17 +139,16 @@ export default function TeamPage() {
       setError('');
       setSuccess('');
 
-      await inviteUser({
+      const res = await inviteUser({
         email: inviteEmail.trim(),
         name: inviteName.trim() || undefined,
         role: inviteRole,
       });
 
-      setSuccess(`User ${inviteEmail} invited successfully.`);
-      setIsInviteOpen(false);
-      setInviteEmail('');
-      setInviteName('');
-      setInviteRole('EMPLOYEE');
+      if (res.invitation?.invitationUrl) {
+        setCreatedInviteUrl(res.invitation.invitationUrl);
+      }
+      setSuccess(`Invitation link generated for ${inviteEmail}.`);
 
       // Refresh list
       const team = await getTeam();
@@ -160,6 +161,16 @@ export default function TeamPage() {
     } finally {
       setInviting(false);
     }
+  }
+
+  function closeInviteModal() {
+    setIsInviteOpen(false);
+    setCreatedInviteUrl('');
+    setInviteEmail('');
+    setInviteName('');
+    setInviteRole('EMPLOYEE');
+    setInviteError('');
+    setCopied(false);
   }
 
   if (loading) {
@@ -385,7 +396,7 @@ export default function TeamPage() {
                 Invite Team Member
               </h3>
               <button
-                onClick={() => setIsInviteOpen(false)}
+                onClick={closeInviteModal}
                 className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
               >
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -400,66 +411,107 @@ export default function TeamPage() {
               </div>
             )}
 
-            <form onSubmit={handleInviteSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
-                  Email Address *
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="user@example.com"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400"
-                />
-              </div>
+            {createdInviteUrl ? (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
+                    Invitation Link Generated
+                  </p>
+                  <p className="mt-1 text-sm text-emerald-800">
+                    Share this invitation link with <strong>{inviteEmail}</strong> to grant access:
+                  </p>
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={createdInviteUrl}
+                      className="w-full rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-mono text-slate-800 outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(createdInviteUrl);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                      className="shrink-0 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-800"
+                    >
+                      {copied ? 'Copied!' : 'Copy Link'}
+                    </button>
+                  </div>
+                </div>
 
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
-                  Full Name (Optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="John Doe"
-                  value={inviteName}
-                  onChange={(e) => setInviteName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400"
-                />
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="button"
+                    onClick={closeInviteModal}
+                    className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  >
+                    Done
+                  </button>
+                </div>
               </div>
+            ) : (
+              <form onSubmit={handleInviteSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                    Email Address *
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="user@example.com"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
-                  Role
-                </label>
-                <select
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value as Role)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400"
-                >
-                  <option value="ADMIN">ADMIN</option>
-                  <option value="MANAGER">MANAGER</option>
-                  <option value="EMPLOYEE">EMPLOYEE</option>
-                </select>
-              </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                    Full Name (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="John Doe"
+                    value={inviteName}
+                    onChange={(e) => setInviteName(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400"
+                  />
+                </div>
 
-              <div className="mt-6 flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsInviteOpen(false)}
-                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={inviting}
-                  className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
-                >
-                  {inviting ? 'Sending Invite...' : 'Send Invite'}
-                </button>
-              </div>
-            </form>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                    Role
+                  </label>
+                  <select
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value as Role)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400"
+                  >
+                    <option value="MANAGER">MANAGER</option>
+                    <option value="EMPLOYEE">EMPLOYEE</option>
+                  </select>
+                </div>
+
+                <div className="mt-6 flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={closeInviteModal}
+                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={inviting}
+                    className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {inviting ? 'Generating Link...' : 'Generate Invite Link'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

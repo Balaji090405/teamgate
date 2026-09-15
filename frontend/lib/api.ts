@@ -292,21 +292,66 @@ export async function updateUserRole(
   );
 }
 
+export interface InviteResponse {
+  message: string;
+  invitation: {
+    rawToken: string;
+    invitationUrl: string;
+    invitedEmail: string;
+    role: Role;
+    expiresAt: string;
+  };
+}
+
+export interface InvitationDetails {
+  valid: boolean;
+  invitedEmail: string;
+  role: Role;
+  workspaceId: string;
+  workspaceName: string;
+  expiresAt: string;
+}
+
 export async function inviteUser(data: {
   email: string;
-  role: Role;
   name?: string;
-}): Promise<{
-  message: string;
-  user: {
-    userId: string;
-    email: string;
-    role: Role;
-  };
-}> {
+  role: Role;
+}): Promise<InviteResponse> {
   return apiRequest('/team', {
     method: 'POST',
     body: JSON.stringify(data),
+  });
+}
+
+export async function getInvitation(token: string): Promise<InvitationDetails> {
+  const response = await fetch(`${API_URL}/invitations/${token}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const text = await response.text();
+  let data: unknown = null;
+  if (text) {
+    try { data = JSON.parse(text); } catch { data = text; }
+  }
+  if (!response.ok) {
+    const msg = typeof data === 'object' && data !== null && 'message' in data && typeof data.message === 'string'
+      ? data.message : 'Invalid or expired invitation.';
+    throw new Error(msg);
+  }
+  return data as InvitationDetails;
+}
+
+export async function acceptInvitation(token: string): Promise<{ message: string; workspaceId: string; role: Role }> {
+  return apiRequest('/invitations/accept', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  });
+}
+
+export async function createWorkspace(name: string): Promise<{ message: string; workspaceId: string; role: Role }> {
+  return apiRequest('/workspaces', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
   });
 }
 

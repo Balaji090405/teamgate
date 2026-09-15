@@ -13,8 +13,7 @@ import {
   AccountRecovery,
 } from 'aws-cdk-lib/aws-cognito';
 
-import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
-import { Runtime } from 'aws-cdk-lib/aws-lambda';
+import { Function, Code, Runtime } from 'aws-cdk-lib/aws-lambda';
 
 import {
   HttpApi,
@@ -169,40 +168,17 @@ export class TeamGateStack extends cdk.Stack {
        Lambda
     --------------------------------------------- */
 
-    const apiFn =
-      new NodejsFunction(
-        this,
-        'TeamGateApiFn',
-        {
-          runtime:
-            Runtime.NODEJS_22_X,
-
-          entry: path.join('lambda', 'handler.ts'),
-
-          handler: 'handler',
-
-          timeout:
-            cdk.Duration.seconds(10),
-
-          memorySize: 256,
-
-          environment: {
-            TABLE_NAME:
-              table.tableName,
-
-            USER_POOL_ID:
-              userPool.userPoolId,
-          },
-
-          bundling: {
-            minify: true,
-
-            sourceMap: true,
-
-            forceDockerBundling: false,
-          },
-        },
-      );
+    const apiFn = new Function(this, 'TeamGateApiFn', {
+      runtime: Runtime.PYTHON_3_12,
+      code: Code.fromAsset(path.join(__dirname, '../lambda')),
+      handler: 'handler.handler',
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 256,
+      environment: {
+        TABLE_NAME: table.tableName,
+        USER_POOL_ID: userPool.userPoolId,
+      },
+    });
 
     /* ---------------------------------------------
        DynamoDB permission
@@ -384,6 +360,40 @@ export class TeamGateStack extends cdk.Stack {
 
       methods: [
         HttpMethod.GET,
+      ],
+
+      integration,
+
+      authorizer,
+    });
+
+    httpApi.addRoutes({
+      path: '/workspaces',
+
+      methods: [
+        HttpMethod.POST,
+      ],
+
+      integration,
+
+      authorizer,
+    });
+
+    httpApi.addRoutes({
+      path: '/invitations/{token}',
+
+      methods: [
+        HttpMethod.GET,
+      ],
+
+      integration,
+    });
+
+    httpApi.addRoutes({
+      path: '/invitations/accept',
+
+      methods: [
+        HttpMethod.POST,
       ],
 
       integration,
