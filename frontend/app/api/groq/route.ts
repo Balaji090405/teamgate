@@ -41,7 +41,7 @@ const STOP_WORDS = new Set([
   'give', 'find', 'does', 'do', 'did', 'has', 'have', 'had', 'from', 'out', 'up', 'down',
 ]);
 
-// Pure JS PDF Stream Text Extractor (100% serverless compatible, zero worker file dependencies)
+// Pure JS PDF Stream Text Extractor (Native Node.js zlib stream decompressor fallback)
 function extractPdfTextPureJs(pdfBuffer: Buffer): DocumentPage[] {
   const pages: DocumentPage[] = [];
   const pdfString = pdfBuffer.toString('binary');
@@ -107,7 +107,7 @@ function extractPdfTextPureJs(pdfBuffer: Buffer): DocumentPage[] {
   return pages;
 }
 
-// Extract page-by-page text from PDF buffer or plain text string
+// Extract page-by-page text from PDF buffer or plain text string (Max 20 pages)
 async function extractDocumentPages(
   fileData: string | undefined,
   fileName: string | undefined,
@@ -130,73 +130,51 @@ async function extractDocumentPages(
     (fileType && fileType.toLowerCase().includes('pdf'));
 
   if (base64String && isPdf) {
-    // 1. Try Pure JS stream extraction first (Fast, 100% serverless native Node.js zlib)
+    const buffer = Buffer.from(base64String, 'base64');
+
+    // 1. Primary: Use pdf-parse library
     try {
-      const buffer = Buffer.from(base64String, 'base64');
-      pages = extractPdfTextPureJs(buffer);
-    } catch (err) {
-      console.error('Pure JS stream extraction error:', err);
-    }
+      const { PDFParse } = await import('pdf-parse');
+      const parser = new PDFParse({ data: new Uint8Array(buffer) });
+      const res = await parser.getText();
+      await parser.destroy();
 
-    // 2. Try pdf-parse package via dynamic import if pure JS returned 0 pages
-    if (pages.length === 0) {
-      try {
-        const { PDFParse } = await import('pdf-parse');
-        const buffer = Buffer.from(base64String, 'base64');
-        const parser = new PDFParse({ data: new Uint8Array(buffer) });
-        const res = await parser.getText();
-        await parser.destroy();
-
-        if (res && res.pages && res.pages.length > 0) {
-          for (const p of res.pages) {
-            const cleaned = (p.text || '').replace(/[^\x20-\x7E\x0A\x0D\x09]/g, ' ').replace(/[ \t]+/g, ' ').trim();
-            if (cleaned.length > 0) {
-              pages.push({ pageNumber: p.num || (pages.length + 1), text: cleaned });
-            }
-          }
-        } else if (res && res.text) {
-          const cleaned = res.text.replace(/[^\x20-\x7E\x0A\x0D\x09]/g, ' ').replace(/[ \t]+/g, ' ').trim();
-          if (cleaned) {
-            pages.push({ pageNumber: 1, text: cleaned });
+      if (res && res.pages && res.pages.length > 0) {
+        for (let i = 0; i < res.pages.length; i++) {
+          const p = res.pages[i];
+          const cleaned = (p.text || '').replace(/[^\x20-\x7E\x0A\x0D\x09]/g, ' ').replace(/[ \t]+/g, ' ').trim();
+          if (cleaned.length > 0) {
+            pages.push({ pageNumber: p.num || (i + 1), text: cleaned });
           }
         }
-      } catch (err) {
-        console.error('PDFParse class extraction error:', err);
+      } else if (res && res.text) {
+        const cleaned = res.text.replace(/[^\x20-\x7E\x0A\x0D\x09]/g, ' ').replace(/[ \t]+/g, ' ').trim();
+        if (cleaned) {
+          pages.push({ pageNumber: 1, text: cleaned });
+        }
       }
+    } catch (err) {
+      console.error('pdf-parse library extraction attempt error:', err);
     }
 
-    // 3. Fallback raw string pattern matcher
+    // 2. Secondary fallback: Pure JS zlib stream extractor
     if (pages.length === 0) {
       try {
-        const buffer = Buffer.from(base64String, 'base64');
-        const rawString = buffer.toString('binary');
-        const matches = rawString.match(/\(([^()\\]|\\[\s\S])*\)/g);
-        const textPieces: string[] = [];
-        if (matches) {
-          for (const m of matches) {
-            const clean = m.slice(1, -1).replace(/\\([()\\])/g, '$1').trim();
-            if (clean.length >= 2 && /[a-zA-Z0-9]/.test(clean) && !/^(FlateDecode|Font|DeviceRGB|Helvetica|Times)/i.test(clean)) {
-              textPieces.push(clean);
-            }
-          }
-        }
-        const fallbackText = textPieces.join(' ').replace(/\s+/g, ' ').trim();
-        if (fallbackText) {
-          pages.push({ pageNumber: 1, text: fallbackText });
-        }
-      } catch {
-        // Ignore fallback error
+        pages = extractPdfTextPureJs(buffer);
+      } catch (err) {
+        console.error('Pure JS stream extraction error:', err);
       }
     }
   } else if (base64String) {
+    // Plain text / plain file base64
     try {
       const buffer = Buffer.from(base64String, 'base64');
       const text = buffer.toString('utf-8').replace(/[^\x20-\x7E\x0A\x0D\x09]/g, ' ').replace(/[ \t]+/g, ' ').trim();
       if (text) {
         pages.push({ pageNumber: 1, text });
       }
-    } catch {
-      // Ignore conversion error
+    } catch (err) {
+      console.error('Plain text base64 conversion error:', err);
     }
   }
 
@@ -205,6 +183,11 @@ async function extractDocumentPages(
     if (cleaned) {
       pages.push({ pageNumber: 1, text: cleaned });
     }
+  }
+
+  // Enforce max 20 pages limit per assignment specification
+  if (pages.length > 20) {
+    pages = pages.slice(0, 20);
   }
 
   return pages;
@@ -253,7 +236,13 @@ function tokenize(text: string): string[] {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    let body;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON request payload.' }, { status: 400 });
+    }
+
     const {
       prompt,
       systemPrompt,
@@ -265,23 +254,30 @@ export async function POST(req: Request) {
       mode,
     } = body;
 
-    const apiKey = process.env.GROQ_API_KEY || process.env.NEXT_PUBLIC_GROQ_API_KEY;
+    const apiKey = process.env.GROQ_API_KEY;
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'GROQ_API_KEY environment variable is not set on the server. Please set GROQ_API_KEY in Vercel project environment variables.' },
+        { error: 'GROQ_API_KEY environment variable is not configured on the server.' },
         { status: 500 }
       );
     }
 
     const pages = await extractDocumentPages(fileData, fileName, fileType, documentText);
 
+    // If file/document data was provided but text extraction returned 0 pages, fail with HTTP 400
+    if (pages.length === 0 && (fileData || documentText)) {
+      return NextResponse.json(
+        { error: 'Unable to extract text from the PDF document.' },
+        { status: 400 }
+      );
+    }
+
     if (pages.length === 0) {
-      if (mode === 'qa') {
-        return NextResponse.json({ reply: 'No response is found from the document.' });
-      } else {
-        return NextResponse.json({ reply: 'No document text content could be extracted for summarization.' });
-      }
+      return NextResponse.json(
+        { error: 'No document data or text provided.' },
+        { status: 400 }
+      );
     }
 
     const chunks = chunkDocumentPages(pages);
@@ -292,7 +288,7 @@ export async function POST(req: Request) {
         {
           role: 'system',
           content:
-            'You are an expert document summarizer for TeamGate. Provide a clear, professional executive summary focusing on key objectives, requirements, and deliverables. Format as clean text. Do NOT output raw PDF binary markers, zlib code tokens, or bracket headers. End the summary with a source citation line: [Source: <FileName>].',
+            'You are an expert document summarizer for TeamGate. Provide a clear, professional executive summary focusing on key objectives, requirements, and deliverables. Format as clean text with section headers and bullet points. End the summary with a source citation line: [Source: <FileName>].',
         },
         {
           role: 'user',
@@ -334,8 +330,12 @@ export async function POST(req: Request) {
     const query = userQuery || prompt || '';
     const queryTokens = tokenize(query);
 
-    // Fast local relevance check: if query has keywords but document has zero matching tokens or characters
+    // Fast local relevance check: if query has terms but document has zero matching tokens or characters
     const docTextLower = fullDocContent.toLowerCase();
+    const matchingChunk = chunks.find((c) => {
+      const cLower = c.text.toLowerCase();
+      return queryTokens.some((t) => cLower.includes(t));
+    });
     const hasAnyMatch = queryTokens.some((t) => docTextLower.includes(t));
 
     // If query contains terms like 'capital', 'recipe', 'football' that are 100% absent from document text
@@ -343,14 +343,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ reply: 'No response is found from the document.' });
     }
 
-    const defaultSystemPrompt = `You are a Document Retrieval Chatbot for TeamGate.
-STRICT MANDATORY RULES:
-1. You MUST answer the user's question ONLY using facts, concepts, and information contained in the Document Content provided below.
-2. Provide a clear, well-structured answer. If asked for steps, components, tables, or overview, format with markdown tables and bullet points where appropriate.
-3. If the user's question relates to concepts, tools, requirements, deliverables, or topics mentioned in the document (such as serverless architecture, AWS Lambda, Amazon S3, DynamoDB, API Gateway, roles, etc.), explain them clearly in the context of the document.
-4. At the very end of your answer, append a source citation line in the exact format: [Source: ${fileName || 'Document'}, Page: 1].
-5. ONLY if the requested information is completely unrelated to the uploaded document or asks about topics entirely absent from the document, reply strictly with the exact sentence:
-"No response is found from the document."`;
+    const matchedPageNum = matchingChunk ? matchingChunk.pageNumber : (pages[0]?.pageNumber || 1);
+
+    const defaultSystemPrompt = `You are TeamGate's document-grounded assistant.
+
+Answer only from the supplied excerpts from the selected document.
+
+Do not use outside knowledge.
+Do not invent information.
+Do not infer unsupported facts.
+
+If the supplied document does not contain enough information to answer the question, return exactly:
+
+No response is found from the document.`;
 
     const messages = [
       {
@@ -394,7 +399,7 @@ STRICT MANDATORY RULES:
       !reply.includes('[Source:') &&
       fileName
     ) {
-      reply += `\n\n[Source: ${fileName}, Page: 1]`;
+      reply += `\n\n[Source: ${fileName}, Page: ${matchedPageNum}]`;
     }
 
     return NextResponse.json({ reply });
