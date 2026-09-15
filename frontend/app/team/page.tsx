@@ -250,10 +250,10 @@ export default function TeamPage() {
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">
-                  Registered users
+                  Workspace members
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  All users registered in TeamGate.
+                  Users who belong to this workspace.
                 </p>
               </div>
 

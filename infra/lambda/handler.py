@@ -451,58 +451,57 @@ def handle_get_team(event: dict):
     if not can_manage_team(role):
         return response(403, {"message": "You do not have permission to manage the team."})
 
-    users = []
-    pag_token = None
+    ws_id = ws["workspaceId"]
+    res = table.query(
+        KeyConditionExpression=Key("PK").eq(f"WORKSPACE#{ws_id}") & Key("SK").begins_with("MEMBER#")
+    )
+    items = res.get("Items", [])
 
-    while True:
-        kwargs = {"UserPoolId": USER_POOL_ID, "Limit": 60}
-        if pag_token:
-            kwargs["PaginationToken"] = pag_token
+    members = []
+    for item in items:
+        uid = item.get("userId") or item.get("SK", "").replace("MEMBER#", "")
+        if not uid:
+            continue
 
-        cog_res = cognito.list_users(**kwargs)
-        for u in cog_res.get("Users", []):
-            uid = u.get("Username", "")
-            attrs = {attr["Name"]: attr["Value"] for attr in u.get("Attributes", [])}
+        member_email = item.get("email", "")
+        member_role = item.get("role", "EMPLOYEE")
+        is_owner = item.get("isOwner") is True
+        member_name = item.get("name")
+        member_status = "CONFIRMED"
 
-            user_role = "EMPLOYEE"
-            try:
-                grps = cognito.admin_list_groups_for_user(UserPoolId=USER_POOL_ID, Username=uid)
-                gnames = [g.get("GroupName") for g in grps.get("Groups", [])]
-                if "Admin" in gnames:
-                    user_role = "ADMIN"
-                elif "Manager" in gnames:
-                    user_role = "MANAGER"
-                else:
-                    user_role = "EMPLOYEE"
-            except Exception as e:
-                print("Error listing user groups:", e)
+        try:
+            cog_user = cognito.admin_get_user(UserPoolId=USER_POOL_ID, Username=uid)
+            attrs = {attr["Name"]: attr["Value"] for attr in cog_user.get("UserAttributes", [])}
+            if attrs.get("email"):
+                member_email = attrs.get("email")
+            if attrs.get("name"):
+                member_name = attrs.get("name")
+            if cog_user.get("UserStatus"):
+                member_status = cog_user.get("UserStatus")
 
-            users.append({
-                "id": uid,
-                "userId": uid,
-                "email": attrs.get("email", ""),
-                "name": attrs.get("name"),
-                "role": user_role,
-                "status": u.get("UserStatus"),
-                "isOwner": False,
-            })
+            grps = cognito.admin_list_groups_for_user(UserPoolId=USER_POOL_ID, Username=uid)
+            gnames = [g.get("GroupName") for g in grps.get("Groups", [])]
+            if "Admin" in gnames:
+                member_role = "ADMIN"
+            elif "Manager" in gnames and member_role != "ADMIN":
+                member_role = "MANAGER"
+        except Exception as e:
+            print(f"Cognito lookup skipped for user {uid}:", e)
 
-        pag_token = cog_res.get("PaginationToken")
-        if not pag_token:
-            break
+        if is_owner:
+            member_role = "ADMIN"
 
-    user_ws = get_workspace_for_user(user_id)
-    if user_ws:
-        res = table.query(KeyConditionExpression=Key("PK").eq(f"WORKSPACE#{user_ws['workspaceId']}"))
-        items = res.get("Items", [])
-        owner_item = next((i for i in items if i.get("entityType") == "MEMBER" and i.get("isOwner") is True), None)
-        if owner_item:
-            owner_user = next((u for u in users if u["id"] == owner_item.get("userId")), None)
-            if owner_user:
-                owner_user["isOwner"] = True
-                owner_user["role"] = "ADMIN"
+        members.append({
+            "id": uid,
+            "userId": uid,
+            "email": member_email,
+            "name": member_name,
+            "role": member_role,
+            "status": member_status,
+            "isOwner": is_owner,
+        })
 
-    return response(200, {"members": users})
+    return response(200, {"members": members})
 
 
 def handle_change_user_role(event: dict, target_user_id: str):

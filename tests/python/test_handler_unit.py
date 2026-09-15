@@ -193,6 +193,51 @@ def test_create_workspace_assigns_admin():
         print("[PASS] test_create_workspace_assigns_admin")
 
 
+def test_get_team_returns_only_workspace_members():
+    """Verify GET /team queries DynamoDB for workspace members and excludes non-workspace users."""
+    mock_table = MagicMock()
+    mock_cognito = MagicMock()
+
+    # Mock DynamoDB returning 2 members for ws-123
+    mock_table.query.return_value = {
+        "Items": [
+            {
+                "PK": "WORKSPACE#ws-123",
+                "SK": "MEMBER#user-admin",
+                "userId": "user-admin",
+                "email": "admin@test.com",
+                "role": "ADMIN",
+                "isOwner": True,
+            },
+            {
+                "PK": "WORKSPACE#ws-123",
+                "SK": "MEMBER#user-manager",
+                "userId": "user-manager",
+                "email": "manager@test.com",
+                "role": "MANAGER",
+                "isOwner": False,
+            },
+        ]
+    }
+    # Mock admin_get_user throwing or returning attributes
+    mock_cognito.admin_get_user.side_effect = Exception("User attributes skipped")
+
+    with patch.object(handler, "get_effective_role", return_value=({"workspaceId": "ws-123"}, "ADMIN")), \
+         patch.object(handler, "table", mock_table), \
+         patch.object(handler, "cognito", mock_cognito):
+        evt = make_event("GET", "/team", sub="user-admin", email="admin@test.com", groups=["Admin"])
+        res = handler.handle_get_team(evt)
+        assert res["statusCode"] == 200, f"Expected 200, got {res['statusCode']}"
+        body = json.loads(res["body"])
+        members = body["members"]
+        assert len(members) == 2, f"Expected 2 members, got {len(members)}"
+        emails = [m["email"] for m in members]
+        assert "admin@test.com" in emails
+        assert "manager@test.com" in emails
+        assert "teamgateadmin@gmail.com" not in emails
+        print("[PASS] test_get_team_returns_only_workspace_members")
+
+
 def run_all_unit_tests():
     print("=" * 70)
     print("Running TeamGate Handler Unit Tests (Mocked AWS)")
@@ -204,10 +249,12 @@ def run_all_unit_tests():
     test_accept_invitation_mismatched_email()
     test_accept_invitation_matching_email()
     test_create_workspace_assigns_admin()
+    test_get_team_returns_only_workspace_members()
     print("=" * 70)
-    print("ALL HANDLER UNIT TESTS PASSED SUCCESSFULLY! (7/7)")
+    print("ALL HANDLER UNIT TESTS PASSED SUCCESSFULLY! (8/8)")
     print("=" * 70)
 
 
 if __name__ == "__main__":
     run_all_unit_tests()
+
