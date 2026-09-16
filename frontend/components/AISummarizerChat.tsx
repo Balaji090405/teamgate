@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { Project, Role } from '@/lib/api';
 
 interface AISummarizerChatProps {
@@ -218,18 +220,7 @@ export default function AISummarizerChat({ projects, role }: AISummarizerChatPro
     setIsThinking(false);
   }
 
-  function formatMarkdown(str: string) {
-    if (!str) return null;
-    const parts = str.split(/(\*\*[^*]+\*\*)/g);
-    return parts.map((part, idx) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return <strong key={idx} className="font-bold text-slate-900">{part.slice(2, -2)}</strong>;
-      }
-      return part;
-    });
-  }
-
-  // Render Table / Formatted Response in Chat Bubble
+  // Render Markdown Response in Chat Bubble / Summary Drawer
   function renderAIResponse(text: string) {
     if (text === 'No response is found from the document.') {
       return (
@@ -239,64 +230,38 @@ export default function AISummarizerChat({ projects, role }: AISummarizerChatPro
       );
     }
 
-    const lines = text.split('\n');
-    const tableLines = lines.filter((l) => l.trim().startsWith('|') && l.trim().endsWith('|'));
-
-    if (tableLines.length >= 2) {
-      const firstTableIdx = lines.indexOf(tableLines[0]);
-      const lastTableIdx = lines.indexOf(tableLines[tableLines.length - 1]);
-
-      const textBefore = lines.slice(0, firstTableIdx).join('\n').trim();
-      const textAfter = lines.slice(lastTableIdx + 1).join('\n').trim();
-
-      const headers = tableLines[0]
-        .split('|')
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      const rowLines = tableLines.slice(1).filter((l) => !l.includes('---'));
-      const rows = rowLines.map((row) =>
-        row
-          .split('|')
-          .map((s) => s.trim())
-          .filter(Boolean),
-      );
-
-      return (
-        <div className="space-y-3">
-          {textBefore && <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">{formatMarkdown(textBefore)}</p>}
-
-          <div className="overflow-hidden rounded-xl border border-purple-200 bg-white shadow-xs">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-purple-100/70 text-indigo-950 font-bold border-b border-purple-200">
-                <tr>
-                  {headers.map((h, i) => (
-                    <th key={i} className="px-3.5 py-2.5">
-                      {formatMarkdown(h)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-purple-100 text-slate-700">
-                {rows.map((row, rIdx) => (
-                  <tr key={rIdx} className="hover:bg-purple-50/40">
-                    {row.map((cell, cIdx) => (
-                      <td key={cIdx} className="px-3.5 py-2.5">
-                        {formatMarkdown(cell)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {textAfter && <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">{formatMarkdown(textAfter)}</p>}
-        </div>
-      );
-    }
-
-    return <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">{formatMarkdown(text)}</p>;
+    return (
+      <div className="space-y-2 text-xs text-slate-800 leading-relaxed">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            h1: ({ children }) => <h1 className="text-sm font-bold text-slate-900 mt-3 mb-1.5">{children}</h1>,
+            h2: ({ children }) => <h2 className="text-xs font-bold text-slate-900 mt-2.5 mb-1.5">{children}</h2>,
+            h3: ({ children }) => <h3 className="text-xs font-bold text-indigo-950 mt-2 mb-1">{children}</h3>,
+            p: ({ children }) => <p className="mb-2 text-xs leading-relaxed text-slate-700">{children}</p>,
+            ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 text-xs text-slate-700">{children}</ul>,
+            ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 text-xs text-slate-700">{children}</ol>,
+            li: ({ children }) => <li className="text-xs text-slate-700">{children}</li>,
+            strong: ({ children }) => <strong className="font-semibold text-slate-900">{children}</strong>,
+            em: ({ children }) => <em className="italic text-slate-800">{children}</em>,
+            table: ({ children }) => (
+              <div className="my-3 overflow-x-auto rounded-xl border border-purple-200 bg-white shadow-xs">
+                <table className="w-full border-collapse text-left text-xs">{children}</table>
+              </div>
+            ),
+            thead: ({ children }) => <thead className="bg-purple-100/70 text-indigo-950 font-bold border-b border-purple-200">{children}</thead>,
+            tbody: ({ children }) => <tbody className="divide-y divide-purple-100 text-slate-700">{children}</tbody>,
+            tr: ({ children }) => <tr className="hover:bg-purple-50/40">{children}</tr>,
+            th: ({ children }) => <th className="border-b border-purple-200 px-3.5 py-2 font-semibold text-indigo-950">{children}</th>,
+            td: ({ children }) => <td className="border-b border-purple-100 px-3.5 py-2">{children}</td>,
+            code: ({ children }) => <code className="rounded bg-purple-100/80 px-1 py-0.5 font-mono text-[11px] text-purple-900">{children}</code>,
+            pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-lg bg-slate-900 p-3 font-mono text-[11px] text-slate-100">{children}</pre>,
+          }}
+        >
+          {text}
+        </ReactMarkdown>
+      </div>
+    );
   }
 
   return (
@@ -439,17 +404,20 @@ export default function AISummarizerChat({ projects, role }: AISummarizerChatPro
 
           {/* RAG Summary Output Drawer */}
           {summaryOutput && (
-            <div className="mt-4 rounded-2xl border border-purple-200 bg-purple-50/60 p-4 text-xs text-slate-800 whitespace-pre-line font-mono">
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-bold text-indigo-900">✨ AI RAG Summary</span>
+            <div className="mt-4 rounded-2xl border border-purple-200 bg-purple-50/60 p-4 text-xs text-slate-800">
+              <div className="flex items-center justify-between mb-3 border-b border-purple-200/60 pb-2">
+                <span className="font-bold text-indigo-900 flex items-center gap-1.5 text-xs">
+                  <span>✨</span>
+                  <span>AI RAG Summary</span>
+                </span>
                 <button
                   onClick={() => setSummaryOutput(null)}
-                  className="text-slate-400 hover:text-slate-600 text-xs"
+                  className="text-slate-400 hover:text-slate-600 text-xs px-1.5 py-0.5 rounded hover:bg-purple-100 transition"
                 >
                   ✕
                 </button>
               </div>
-              {summaryOutput.replace(/\*\*/g, '')}
+              {renderAIResponse(summaryOutput)}
             </div>
           )}
         </div>
