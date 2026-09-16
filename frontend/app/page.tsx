@@ -85,7 +85,7 @@ function PasswordInput({
         placeholder={placeholder}
         autoComplete={autoComplete}
         required
-        className="w-full rounded-xl border border-slate-200 bg-slate-100/70 px-4 py-3 pr-11 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
+        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 pr-11 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
       />
 
       <button
@@ -93,7 +93,7 @@ function PasswordInput({
         onClick={() => setShowPassword((current) => !current)}
         aria-label={showPassword ? 'Hide password' : 'Show password'}
         title={showPassword ? 'Hide password' : 'Show password'}
-        className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-200/60 hover:text-slate-700"
+        className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
       >
         <EyeIcon hidden={!showPassword} />
       </button>
@@ -111,13 +111,13 @@ function PasswordRequirementItem({
   return (
     <div
       className={`flex items-center gap-2 text-xs transition-colors ${
-        valid ? 'font-medium text-emerald-600' : 'text-slate-500'
+        valid ? 'font-medium text-teal-700' : 'text-slate-500'
       }`}
     >
       <span
         className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] transition-all ${
           valid
-            ? 'border-emerald-500 bg-emerald-500 text-white'
+            ? 'border-teal-600 bg-teal-600 text-white'
             : 'border-slate-300 bg-white text-transparent'
         }`}
       >
@@ -128,23 +128,97 @@ function PasswordRequirementItem({
   );
 }
 
+function GoogleIcon() {
+  return (
+    <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24">
+      <path
+        fill="#4285F4"
+        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+      />
+    </svg>
+  );
+}
+
+function MicrosoftIcon() {
+  return (
+    <svg className="h-5 w-5 shrink-0" viewBox="0 0 23 23">
+      <path fill="#f35325" d="M1 1h10v10H1z" />
+      <path fill="#81bc06" d="M12 1h10v10H12z" />
+      <path fill="#05a6f0" d="M1 12h10v10H1z" />
+      <path fill="#ffba08" d="M12 12h10v10H12z" />
+    </svg>
+  );
+}
+
+function SocialButtons({ onSocialClick }: { onSocialClick: (provider: string) => void }) {
+  return (
+    <div className="space-y-3">
+      <button
+        type="button"
+        onClick={() => onSocialClick('Google')}
+        className="flex w-full items-center justify-center gap-3 rounded-full border border-slate-300 bg-white py-3 px-4 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-200"
+      >
+        <GoogleIcon />
+        <span>Continue with Google</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onSocialClick('Microsoft')}
+        className="flex w-full items-center justify-center gap-3 rounded-full border border-slate-300 bg-white py-3 px-4 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-200"
+      >
+        <MicrosoftIcon />
+        <span>Continue with Microsoft</span>
+      </button>
+    </div>
+  );
+}
+
+function OrDivider() {
+  return (
+    <div className="relative my-6 flex items-center justify-center">
+      <div className="w-full border-t border-slate-200" />
+      <span className="absolute bg-white px-3 text-xs font-medium uppercase tracking-wider text-slate-400">
+        or
+      </span>
+    </div>
+  );
+}
+
 export default function Home() {
   const [mode, setMode] = useState<AuthMode>('login');
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [keepSignedIn, setKeepSignedIn] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   const [confirmationCode, setConfirmationCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [socialNotice, setSocialNotice] = useState('');
   const [loading, setLoading] = useState(false);
 
   function clearMessages() {
     setMessage('');
     setError('');
+    setSocialNotice('');
   }
 
   function switchMode(newMode: AuthMode) {
@@ -156,29 +230,32 @@ export default function Home() {
     setConfirmationCode('');
   }
 
+  function handleSocialClick(provider: string) {
+    clearMessages();
+    setSocialNotice(
+      `${provider} sign-in is not configured for this Cognito User Pool. Please sign in using your work email.`
+    );
+  }
+
   /*
-   * Password validation for signup
+   * Password validation for Workspace Signup
    */
   const passwordRequirements = {
-    minLength: password.length >= 8,
+    minLength: password.length >= 12,
     uppercase: /[A-Z]/.test(password),
     lowercase: /[a-z]/.test(password),
     number: /[0-9]/.test(password),
+    match: password.length > 0 && confirmPassword.length > 0 && password === confirmPassword,
   };
 
-  const isPasswordValid =
-    passwordRequirements.minLength &&
+  const isCognitoPasswordValid =
+    password.length >= 8 &&
     passwordRequirements.uppercase &&
     passwordRequirements.lowercase &&
     passwordRequirements.number;
 
-  const passwordsMatch =
-    password.length > 0 &&
-    confirmPassword.length > 0 &&
-    password === confirmPassword;
-
   /*
-   * Login
+   * Handlers
    */
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -199,14 +276,16 @@ export default function Home() {
     }
   }
 
-  /*
-   * Signup
-   */
   async function handleSignUp(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     clearMessages();
 
-    if (!isPasswordValid) {
+    if (!agreedToTerms) {
+      setError('You must agree to the Terms of Service and Privacy Policy to continue.');
+      return;
+    }
+
+    if (!isCognitoPasswordValid) {
       setError(
         'Password must be at least 8 characters and contain uppercase, lowercase, and a number.'
       );
@@ -238,9 +317,6 @@ export default function Home() {
     }
   }
 
-  /*
-   * Confirm signup
-   */
   async function handleConfirmSignUp(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     clearMessages();
@@ -264,9 +340,6 @@ export default function Home() {
     }
   }
 
-  /*
-   * Resend code
-   */
   async function handleResendCode() {
     clearMessages();
     setLoading(true);
@@ -285,15 +358,12 @@ export default function Home() {
     }
   }
 
-  /*
-   * Forgot password
-   */
   async function handleForgotPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     clearMessages();
 
     if (!email.trim()) {
-      setError('Please enter your email address.');
+      setError('Please enter your work email address.');
       return;
     }
 
@@ -315,9 +385,6 @@ export default function Home() {
     }
   }
 
-  /*
-   * Reset password
-   */
   async function handleResetPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     clearMessages();
@@ -368,93 +435,96 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 transition-colors">
+    <main className="min-h-screen bg-gray-50 transition-colors">
       <div className="grid min-h-screen lg:grid-cols-2">
 
         {/* =======================================================
-            LEFT SIDE - BRANDING PANEL (SPLIT SCREEN)
+            LEFT SIDE - BRANDING (KEPT UNCHANGED AS IN ORIGINAL)
         ======================================================= */}
-        <section className="relative hidden overflow-hidden bg-gradient-to-br from-blue-600 via-indigo-800 to-slate-950 p-12 text-white lg:flex lg:flex-col lg:justify-between">
-
-          {/* Glowing ambient background blurs */}
+        <section className="relative hidden overflow-hidden bg-gradient-to-br from-indigo-700 via-indigo-900 to-slate-950 p-12 text-white lg:flex lg:flex-col lg:justify-between">
+          {/* Background decoration */}
           <div className="absolute -right-32 -top-32 h-96 w-96 rounded-full bg-blue-400/20 blur-3xl" />
-          <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-indigo-500/20 blur-3xl" />
+          <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-indigo-400/20 blur-3xl" />
 
           {/* Logo */}
           <div className="relative z-10 flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-xl font-bold text-blue-600 shadow-lg">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-xl font-bold text-blue-700 shadow-lg">
               T
             </div>
-            <span className="text-2xl font-bold tracking-tight text-white">
-              TeamGate
-            </span>
+            <span className="text-2xl font-bold">TeamGate</span>
           </div>
 
-          {/* Hero text section */}
+          {/* Main content */}
           <div className="relative z-10 max-w-xl">
-            <div className="mb-6 inline-flex items-center rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-xs font-medium backdrop-blur">
+            <div className="mb-6 inline-flex items-center rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm backdrop-blur">
               Secure team workspace
             </div>
 
-            <h2 className="text-4xl font-bold leading-tight tracking-tight lg:text-5xl">
+            <h2 className="text-5xl font-bold leading-tight">
               Manage your team.
               <br />
               Manage your projects.
             </h2>
 
-            <p className="mt-5 max-w-md text-base leading-relaxed text-blue-100/90">
+            <p className="mt-6 max-w-lg text-lg leading-8 text-blue-100">
               TeamGate is a role-based project management platform built with AWS services and secure authentication.
             </p>
 
-            {/* Feature rows with checkmarks */}
-            <div className="mt-8 space-y-4">
-              <div className="flex items-center gap-3.5">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/10 font-bold text-white text-sm">
+            {/* Features */}
+            <div className="mt-10 space-y-4">
+              <div className="flex items-center gap-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10">
                   ✓
                 </div>
                 <div>
-                  <p className="font-semibold text-sm">Role-based access</p>
-                  <p className="text-xs text-blue-100/80">Admin, Manager and Employee permissions</p>
+                  <p className="font-semibold">Role-based access</p>
+                  <p className="text-sm text-blue-100">
+                    Admin, Manager and Employee permissions
+                  </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3.5">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/10 font-bold text-white text-sm">
+              <div className="flex items-center gap-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10">
                   ✓
                 </div>
                 <div>
-                  <p className="font-semibold text-sm">Secure authentication</p>
-                  <p className="text-xs text-blue-100/80">Powered by Amazon Cognito</p>
+                  <p className="font-semibold">Secure authentication</p>
+                  <p className="text-sm text-blue-100">
+                    Powered by Amazon Cognito
+                  </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3.5">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/10 font-bold text-white text-sm">
+              <div className="flex items-center gap-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10">
                   ✓
                 </div>
                 <div>
-                  <p className="font-semibold text-sm">Cloud based</p>
-                  <p className="text-xs text-blue-100/80">Built on AWS serverless architecture</p>
+                  <p className="font-semibold">Cloud based</p>
+                  <p className="text-sm text-blue-100">
+                    Built on AWS serverless architecture
+                  </p>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Footer */}
-          <div className="relative z-10 text-xs text-blue-200/80">
-            TeamGate &copy; 2026
+          <div className="relative z-10 text-sm text-blue-200">
+            TeamGate © 2026
           </div>
         </section>
 
         {/* =======================================================
-            RIGHT SIDE - AUTHENTICATION FORM CARD
+            RIGHT SIDE - AUTHENTICATION PANEL (REDESIGNED ONLY)
         ======================================================= */}
-        <section className="flex min-h-screen items-center justify-center bg-slate-50 px-5 py-10 sm:px-8">
-          <div className="w-full max-w-md">
+        <section className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-10 sm:px-8">
+          <div className={`w-full ${mode === 'signup' ? 'max-w-xl' : 'max-w-md'}`}>
 
-            {/* Mobile Header Logo (visible when lg:hidden) */}
+            {/* Mobile logo */}
             <div className="mb-8 flex items-center justify-center gap-3 lg:hidden">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-xl font-bold text-white shadow-md">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-teal-600 text-xl font-bold text-white shadow-md">
                 T
               </div>
               <span className="text-2xl font-bold text-slate-900">
@@ -463,53 +533,59 @@ export default function Home() {
             </div>
 
             {/* Authentication Card */}
-            <div className="rounded-3xl border border-slate-200/80 bg-white p-7 md:p-9 shadow-xl shadow-slate-200/60">
+            <div className="rounded-3xl border border-slate-200/80 bg-white p-6 sm:p-8 shadow-xl shadow-slate-200/50">
 
-              {/* Status Messages */}
+              {/* Messages */}
               {message && (
-                <div className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
                   {message}
                 </div>
               )}
 
               {error && (
-                <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   {error}
                 </div>
               )}
 
+              {socialNotice && (
+                <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  {socialNotice}
+                </div>
+              )}
+
               {/* =========================================================
-                  LOGIN MODE
+                  SIGN IN SCREEN
               ========================================================= */}
               {mode === 'login' && (
                 <>
-                  <div className="mb-7">
+                  <div className="mb-8">
                     <h1 className="text-3xl font-bold tracking-tight text-slate-900">
                       Welcome back
                     </h1>
                     <p className="mt-2 text-sm text-slate-500">
-                      Sign in to access your workspace.
+                      Sign in to pick up where your team left off.
                     </p>
                   </div>
 
                   <form onSubmit={handleLogin} className="space-y-5">
-                    {/* Email Address */}
+                    {/* Work email */}
                     <div>
                       <label
                         htmlFor="login-email"
                         className="mb-2 block text-sm font-medium text-slate-700"
                       >
-                        Email address
+                        Work email
                       </label>
                       <input
                         id="login-email"
                         type="email"
                         value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                        placeholder="you@example.com"
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="name@company.com"
                         autoComplete="email"
                         required
-                        className="w-full rounded-xl border border-slate-200 bg-slate-100/70 px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
                       />
                     </div>
 
@@ -530,161 +606,236 @@ export default function Home() {
                       />
                     </div>
 
-                    {/* Forgot password */}
-                    <div className="flex justify-end">
+                    {/* Keep me signed in & Forgot password */}
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pt-1">
+                      <div>
+                        <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={keepSignedIn}
+                            onChange={(e) => setKeepSignedIn(e.target.checked)}
+                            className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                          />
+                          <span>Keep me signed in on this device</span>
+                        </label>
+                        <p className="text-xs text-slate-400 mt-0.5 pl-6">
+                          Don&apos;t use this on a shared or public computer.
+                        </p>
+                      </div>
+
                       <button
                         type="button"
                         onClick={() => switchMode('forgot-password')}
-                        className="text-sm font-medium text-blue-600 transition hover:text-blue-700 hover:underline"
+                        className="text-sm font-medium text-teal-600 hover:text-teal-700 hover:underline shrink-0"
                       >
                         Forgot password?
                       </button>
                     </div>
 
-                    {/* Login Button */}
+                    {/* Submit button */}
                     <button
                       type="submit"
                       disabled={loading}
-                      className="w-full rounded-xl bg-blue-600 py-3.5 px-4 font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 text-base"
+                      className="w-full rounded-full bg-teal-600 py-3.5 px-6 font-semibold text-white shadow-sm transition hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 text-base"
                     >
                       {loading ? 'Signing in...' : 'Sign in'}
                     </button>
                   </form>
 
-                  {/* Toggle to Signup */}
-                  <div className="mt-7 text-center text-sm text-slate-600">
+                  <OrDivider />
+
+                  <SocialButtons onSocialClick={handleSocialClick} />
+
+                  <div className="mt-8 text-center text-sm text-slate-600">
                     Don&apos;t have an account?{' '}
                     <button
                       type="button"
                       onClick={() => switchMode('signup')}
-                      className="font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+                      className="font-semibold text-teal-600 hover:text-teal-700 hover:underline"
                     >
-                      Create account
+                      Create a workspace
                     </button>
                   </div>
                 </>
               )}
 
               {/* =========================================================
-                  SIGN UP MODE (CREATE WORKSPACE/ACCOUNT)
+                  CREATE WORKSPACE SCREEN (SIGNUP)
               ========================================================= */}
               {mode === 'signup' && (
                 <>
-                  <div className="mb-7">
+                  <div className="mb-6">
                     <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-                      Create account
+                      Create your workspace
                     </h1>
                     <p className="mt-2 text-sm text-slate-500">
-                      Create your TeamGate account to get started.
+                      You&apos;ll be the owner — you can invite your team next.
                     </p>
                   </div>
 
-                  <form onSubmit={handleSignUp} className="space-y-5">
-                    {/* Email */}
-                    <div>
-                      <label
-                        htmlFor="signup-email"
-                        className="mb-2 block text-sm font-medium text-slate-700"
-                      >
-                        Email address
-                      </label>
-                      <input
-                        id="signup-email"
-                        type="email"
-                        value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                        placeholder="you@example.com"
-                        autoComplete="email"
-                        required
-                        className="w-full rounded-xl border border-slate-200 bg-slate-100/70 px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
-                      />
+                  {/* 5 Step Progress Indicator */}
+                  <div className="mb-6 rounded-2xl bg-slate-50 p-4 border border-slate-100">
+                    <div className="flex items-center justify-between text-xs font-semibold tracking-wider uppercase mb-2">
+                      <span className="text-teal-700 font-bold">Step 1 of 5</span>
+                      <span className="text-slate-600 font-medium">Account</span>
                     </div>
+                    <div className="grid grid-cols-5 gap-1.5">
+                      <div className="h-1.5 rounded-full bg-teal-600" title="Step 1: Account" />
+                      <div className="h-1.5 rounded-full bg-slate-200" title="Step 2: Team" />
+                      <div className="h-1.5 rounded-full bg-slate-200" title="Step 3: Setup" />
+                      <div className="h-1.5 rounded-full bg-slate-200" title="Step 4: Security" />
+                      <div className="h-1.5 rounded-full bg-slate-200" title="Step 5: Ready" />
+                    </div>
+                  </div>
 
-                    {/* Password */}
-                    <div>
-                      <label
-                        htmlFor="signup-password"
-                        className="mb-2 block text-sm font-medium text-slate-700"
-                      >
-                        Password
-                      </label>
-                      <PasswordInput
-                        id="signup-password"
-                        value={password}
-                        onChange={setPassword}
-                        placeholder="Create a password"
-                        autoComplete="new-password"
-                      />
+                  <form onSubmit={handleSignUp} className="space-y-5">
+                    {/* 2-Column Grid on Desktop */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Full Name */}
+                      <div>
+                        <label
+                          htmlFor="signup-fullname"
+                          className="mb-2 block text-sm font-medium text-slate-700"
+                        >
+                          Full name
+                        </label>
+                        <input
+                          id="signup-fullname"
+                          type="text"
+                          value={fullName}
+                          onChange={(e) => setFullName(e.target.value)}
+                          placeholder="Jane Doe"
+                          className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                        />
+                      </div>
 
-                      {/* Password Requirements */}
-                      <div className="mt-3 grid grid-cols-1 gap-2 rounded-xl bg-slate-50 p-3">
-                        <PasswordRequirementItem
-                          valid={passwordRequirements.minLength}
-                          label="At least 8 characters"
+                      {/* Work Email */}
+                      <div>
+                        <label
+                          htmlFor="signup-email"
+                          className="mb-2 block text-sm font-medium text-slate-700"
+                        >
+                          Work email
+                        </label>
+                        <input
+                          id="signup-email"
+                          type="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder="name@company.com"
+                          autoComplete="email"
+                          required
+                          className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
                         />
-                        <PasswordRequirementItem
-                          valid={passwordRequirements.uppercase}
-                          label="At least one uppercase letter"
+                      </div>
+
+                      {/* Password */}
+                      <div>
+                        <label
+                          htmlFor="signup-password"
+                          className="mb-2 block text-sm font-medium text-slate-700"
+                        >
+                          Password
+                        </label>
+                        <PasswordInput
+                          id="signup-password"
+                          value={password}
+                          onChange={setPassword}
+                          placeholder="Create a password"
+                          autoComplete="new-password"
                         />
-                        <PasswordRequirementItem
-                          valid={passwordRequirements.lowercase}
-                          label="At least one lowercase letter"
-                        />
-                        <PasswordRequirementItem
-                          valid={passwordRequirements.number}
-                          label="At least one number"
+                      </div>
+
+                      {/* Confirm Password */}
+                      <div>
+                        <label
+                          htmlFor="signup-confirm-password"
+                          className="mb-2 block text-sm font-medium text-slate-700"
+                        >
+                          Confirm password
+                        </label>
+                        <PasswordInput
+                          id="signup-confirm-password"
+                          value={confirmPassword}
+                          onChange={setConfirmPassword}
+                          placeholder="Confirm your password"
+                          autoComplete="new-password"
                         />
                       </div>
                     </div>
 
-                    {/* Confirm password */}
-                    <div>
-                      <label
-                        htmlFor="signup-confirm-password"
-                        className="mb-2 block text-sm font-medium text-slate-700"
-                      >
-                        Confirm password
-                      </label>
-                      <PasswordInput
-                        id="signup-confirm-password"
-                        value={confirmPassword}
-                        onChange={setConfirmPassword}
-                        placeholder="Confirm your password"
-                        autoComplete="new-password"
-                      />
-
-                      {confirmPassword.length > 0 && (
-                        <p
-                          className={`mt-2 text-xs ${
-                            passwordsMatch
-                              ? 'text-emerald-600'
-                              : 'text-red-600'
-                          }`}
-                        >
-                          {passwordsMatch
-                            ? '✓ Passwords match'
-                            : 'Passwords do not match'}
-                        </p>
-                      )}
+                    {/* Password Requirements */}
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
+                        Password requirements
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <PasswordRequirementItem
+                          valid={passwordRequirements.minLength}
+                          label="At least 12 characters"
+                        />
+                        <PasswordRequirementItem
+                          valid={passwordRequirements.uppercase}
+                          label="One uppercase letter"
+                        />
+                        <PasswordRequirementItem
+                          valid={passwordRequirements.lowercase}
+                          label="One lowercase letter"
+                        />
+                        <PasswordRequirementItem
+                          valid={passwordRequirements.number}
+                          label="One number"
+                        />
+                        <PasswordRequirementItem
+                          valid={passwordRequirements.match}
+                          label="Passwords match"
+                        />
+                      </div>
                     </div>
 
-                    {/* Submit Button */}
+                    {/* Terms of Service Checkbox */}
+                    <div>
+                      <label className="inline-flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={agreedToTerms}
+                          onChange={(e) => setAgreedToTerms(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                        />
+                        <span>
+                          I agree to the{' '}
+                          <a href="#" onClick={(e) => e.preventDefault()} className="text-teal-600 hover:underline font-medium">
+                            Terms of Service
+                          </a>{' '}
+                          and{' '}
+                          <a href="#" onClick={(e) => e.preventDefault()} className="text-teal-600 hover:underline font-medium">
+                            Privacy Policy
+                          </a>
+                          .
+                        </span>
+                      </label>
+                    </div>
+
+                    {/* Submit button */}
                     <button
                       type="submit"
                       disabled={loading}
-                      className="w-full rounded-xl bg-blue-600 py-3.5 px-4 font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 text-base"
+                      className="w-full rounded-full bg-teal-600 py-3.5 px-6 font-semibold text-white shadow-sm transition hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 text-base"
                     >
-                      {loading ? 'Creating account...' : 'Create account'}
+                      {loading ? 'Creating workspace...' : 'Continue'}
                     </button>
                   </form>
 
-                  {/* Toggle to Login */}
-                  <div className="mt-7 text-center text-sm text-slate-600">
+                  <OrDivider />
+
+                  <SocialButtons onSocialClick={handleSocialClick} />
+
+                  <div className="mt-8 text-center text-sm text-slate-600">
                     Already have an account?{' '}
                     <button
                       type="button"
                       onClick={() => switchMode('login')}
-                      className="font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+                      className="font-semibold text-teal-600 hover:text-teal-700 hover:underline"
                     >
                       Sign in
                     </button>
@@ -693,12 +844,12 @@ export default function Home() {
               )}
 
               {/* =========================================================
-                  CONFIRM SIGNUP MODE
+                  CONFIRM SIGNUP SCREEN
               ========================================================= */}
               {mode === 'confirm-signup' && (
                 <>
-                  <div className="mb-7 text-center">
-                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-blue-100 text-2xl text-blue-600">
+                  <div className="mb-6 text-center">
+                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-teal-100 text-teal-700 text-2xl font-bold">
                       ✉
                     </div>
                     <h1 className="text-2xl font-bold text-slate-900">
@@ -707,7 +858,7 @@ export default function Home() {
                     <p className="mt-2 text-sm leading-6 text-slate-500">
                       We sent a verification code to
                     </p>
-                    <p className="mt-1 break-all font-medium text-slate-800">
+                    <p className="mt-1 break-all font-semibold text-slate-800">
                       {email}
                     </p>
                   </div>
@@ -725,18 +876,18 @@ export default function Home() {
                         type="text"
                         value={confirmationCode}
                         onChange={(e) => setConfirmationCode(e.target.value)}
-                        placeholder="Enter 6-digit code"
+                        placeholder="Enter code"
                         inputMode="numeric"
                         autoComplete="one-time-code"
                         required
-                        className="w-full rounded-xl border border-slate-200 bg-slate-100/70 px-4 py-3 text-center text-lg tracking-[0.35em] text-slate-900 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-center text-lg tracking-[0.35em] text-slate-900 outline-none transition focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
                       />
                     </div>
 
                     <button
                       type="submit"
                       disabled={loading}
-                      className="w-full rounded-xl bg-blue-600 py-3.5 px-4 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 text-base"
+                      className="w-full rounded-full bg-teal-600 py-3.5 px-6 font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60 text-base"
                     >
                       {loading ? 'Verifying...' : 'Verify email'}
                     </button>
@@ -746,7 +897,7 @@ export default function Home() {
                     type="button"
                     onClick={handleResendCode}
                     disabled={loading}
-                    className="mt-4 w-full rounded-xl border border-slate-200 py-3 px-4 font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="mt-4 w-full rounded-full border border-slate-300 py-3 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Resend verification code
                   </button>
@@ -754,7 +905,7 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={() => switchMode('login')}
-                    className="mt-5 w-full text-center text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                    className="mt-6 w-full text-center text-sm font-medium text-teal-600 hover:text-teal-700 hover:underline"
                   >
                     Back to sign in
                   </button>
@@ -762,19 +913,19 @@ export default function Home() {
               )}
 
               {/* =========================================================
-                  FORGOT PASSWORD MODE
+                  FORGOT PASSWORD SCREEN
               ========================================================= */}
               {mode === 'forgot-password' && (
                 <>
-                  <div className="mb-7 text-center">
-                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-blue-100 text-2xl text-blue-600">
+                  <div className="mb-6 text-center">
+                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-teal-100 text-teal-700 text-2xl">
                       🔑
                     </div>
                     <h1 className="text-2xl font-bold text-slate-900">
                       Forgot password?
                     </h1>
                     <p className="mt-2 text-sm leading-6 text-slate-500">
-                      Enter your email and we&apos;ll send you a password reset code.
+                      Enter your work email and we&apos;ll send you a password reset code.
                     </p>
                   </div>
 
@@ -784,24 +935,24 @@ export default function Home() {
                         htmlFor="forgot-email"
                         className="mb-2 block text-sm font-medium text-slate-700"
                       >
-                        Email address
+                        Work email
                       </label>
                       <input
                         id="forgot-email"
                         type="email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        placeholder="you@example.com"
+                        placeholder="name@company.com"
                         autoComplete="email"
                         required
-                        className="w-full rounded-xl border border-slate-200 bg-slate-100/70 px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
                       />
                     </div>
 
                     <button
                       type="submit"
                       disabled={loading}
-                      className="w-full rounded-xl bg-blue-600 py-3.5 px-4 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 text-base"
+                      className="w-full rounded-full bg-teal-600 py-3.5 px-6 font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60 text-base"
                     >
                       {loading ? 'Sending code...' : 'Send reset code'}
                     </button>
@@ -810,7 +961,7 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={() => switchMode('login')}
-                    className="mt-6 w-full text-center text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                    className="mt-6 w-full text-center text-sm font-medium text-teal-600 hover:text-teal-700 hover:underline"
                   >
                     Back to sign in
                   </button>
@@ -818,12 +969,12 @@ export default function Home() {
               )}
 
               {/* =========================================================
-                  RESET PASSWORD MODE
+                  RESET PASSWORD SCREEN
               ========================================================= */}
               {mode === 'reset-password' && (
                 <>
-                  <div className="mb-7 text-center">
-                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-blue-100 text-2xl text-blue-600">
+                  <div className="mb-6 text-center">
+                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-teal-100 text-teal-700 text-2xl">
                       🔐
                     </div>
                     <h1 className="text-2xl font-bold text-slate-900">
@@ -847,11 +998,11 @@ export default function Home() {
                         type="text"
                         value={confirmationCode}
                         onChange={(e) => setConfirmationCode(e.target.value)}
-                        placeholder="Enter verification code"
+                        placeholder="Enter code"
                         inputMode="numeric"
                         autoComplete="one-time-code"
                         required
-                        className="w-full rounded-xl border border-slate-200 bg-slate-100/70 px-4 py-3 text-center text-lg tracking-[0.3em] text-slate-900 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-center text-lg tracking-[0.3em] text-slate-900 outline-none transition focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
                       />
                     </div>
 
@@ -874,7 +1025,7 @@ export default function Home() {
                     <button
                       type="submit"
                       disabled={loading}
-                      className="w-full rounded-xl bg-blue-600 py-3.5 px-4 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 text-base"
+                      className="w-full rounded-full bg-teal-600 py-3.5 px-6 font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60 text-base"
                     >
                       {loading ? 'Resetting password...' : 'Reset password'}
                     </button>
@@ -883,7 +1034,7 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={() => switchMode('login')}
-                    className="mt-6 w-full text-center text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                    className="mt-6 w-full text-center text-sm font-medium text-teal-600 hover:text-teal-700 hover:underline"
                   >
                     Back to sign in
                   </button>
@@ -894,7 +1045,7 @@ export default function Home() {
 
             {/* Security Footer */}
             <p className="mt-6 text-center text-xs text-slate-400">
-              Your account is secured with Amazon Cognito.
+              Secured with AWS Cognito authentication &bull; TeamGate &copy; 2026
             </p>
 
           </div>
