@@ -1,7 +1,9 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
+import type { CognitoUser } from 'amazon-cognito-identity-js';
 import {
+  completeNewPasswordChallenge,
   confirmForgotPassword,
   confirmSignUp,
   forgotPassword,
@@ -15,7 +17,8 @@ type AuthMode =
   | 'signup'
   | 'confirm-signup'
   | 'forgot-password'
-  | 'reset-password';
+  | 'reset-password'
+  | 'set-new-password';
 
 function EyeIcon({ hidden }: { hidden: boolean }) {
   if (hidden) {
@@ -128,75 +131,6 @@ function PasswordRequirementItem({
   );
 }
 
-function GoogleIcon() {
-  return (
-    <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24">
-      <path
-        fill="#4285F4"
-        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-      />
-      <path
-        fill="#34A853"
-        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-      />
-      <path
-        fill="#EA4335"
-        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-      />
-    </svg>
-  );
-}
-
-function MicrosoftIcon() {
-  return (
-    <svg className="h-5 w-5 shrink-0" viewBox="0 0 23 23">
-      <path fill="#f35325" d="M1 1h10v10H1z" />
-      <path fill="#81bc06" d="M12 1h10v10H12z" />
-      <path fill="#05a6f0" d="M1 12h10v10H1z" />
-      <path fill="#ffba08" d="M12 12h10v10H12z" />
-    </svg>
-  );
-}
-
-function SocialButtons({ onSocialClick }: { onSocialClick: (provider: string) => void }) {
-  return (
-    <div className="space-y-3">
-      <button
-        type="button"
-        onClick={() => onSocialClick('Google')}
-        className="flex w-full items-center justify-center gap-3 rounded-full border border-slate-300 bg-white py-3 px-4 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-200"
-      >
-        <GoogleIcon />
-        <span>Continue with Google</span>
-      </button>
-
-      <button
-        type="button"
-        onClick={() => onSocialClick('Microsoft')}
-        className="flex w-full items-center justify-center gap-3 rounded-full border border-slate-300 bg-white py-3 px-4 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-200"
-      >
-        <MicrosoftIcon />
-        <span>Continue with Microsoft</span>
-      </button>
-    </div>
-  );
-}
-
-function OrDivider() {
-  return (
-    <div className="relative my-6 flex items-center justify-center">
-      <div className="w-full border-t border-slate-200" />
-      <span className="absolute bg-white px-3 text-xs font-medium uppercase tracking-wider text-slate-400">
-        or
-      </span>
-    </div>
-  );
-}
-
 export default function Home() {
   const [mode, setMode] = useState<AuthMode>('login');
 
@@ -209,16 +143,15 @@ export default function Home() {
 
   const [confirmationCode, setConfirmationCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [challengeCognitoUser, setChallengeCognitoUser] = useState<CognitoUser | null>(null);
 
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [socialNotice, setSocialNotice] = useState('');
   const [loading, setLoading] = useState(false);
 
   function clearMessages() {
     setMessage('');
     setError('');
-    setSocialNotice('');
   }
 
   function switchMode(newMode: AuthMode) {
@@ -228,13 +161,7 @@ export default function Home() {
     setConfirmPassword('');
     setNewPassword('');
     setConfirmationCode('');
-  }
-
-  function handleSocialClick(provider: string) {
-    clearMessages();
-    setSocialNotice(
-      `${provider} sign-in is not configured for this Cognito User Pool. Please sign in using your work email.`
-    );
+    setChallengeCognitoUser(null);
   }
 
   /*
@@ -263,13 +190,67 @@ export default function Home() {
     setLoading(true);
 
     try {
-      await login(email.trim(), password);
+      const res = await login(email.trim(), password);
+      if (res.type === 'NEW_PASSWORD_REQUIRED') {
+        setChallengeCognitoUser(res.cognitoUser);
+        setMode('set-new-password');
+        setMessage('You must set a new permanent password to complete sign-in.');
+        setNewPassword('');
+        setConfirmPassword('');
+        return;
+      }
       window.location.href = '/dashboard';
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
           : 'Login failed. Please check your email and password.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSetNewPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    clearMessages();
+
+    if (!challengeCognitoUser) {
+      setError('Session expired. Please sign in again.');
+      setMode('login');
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setError('New password must be at least 8 characters.');
+      return;
+    }
+
+    const validNewPassword =
+      /[A-Z]/.test(newPassword) &&
+      /[a-z]/.test(newPassword) &&
+      /[0-9]/.test(newPassword);
+
+    if (!validNewPassword) {
+      setError('New password must contain uppercase, lowercase, and a number.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      await completeNewPasswordChallenge(challengeCognitoUser, newPassword);
+      window.location.href = '/dashboard';
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Could not update password. Please try again.'
       );
     } finally {
       setLoading(false);
@@ -517,7 +498,7 @@ export default function Home() {
         </section>
 
         {/* =======================================================
-            RIGHT SIDE - AUTHENTICATION PANEL (REDESIGNED ONLY)
+            RIGHT SIDE - AUTHENTICATION PANEL
         ======================================================= */}
         <section className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-10 sm:px-8">
           <div className={`w-full ${mode === 'signup' ? 'max-w-xl' : 'max-w-md'}`}>
@@ -545,12 +526,6 @@ export default function Home() {
               {error && (
                 <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   {error}
-                </div>
-              )}
-
-              {socialNotice && (
-                <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  {socialNotice}
                 </div>
               )}
 
@@ -642,10 +617,6 @@ export default function Home() {
                     </button>
                   </form>
 
-                  <OrDivider />
-
-                  <SocialButtons onSocialClick={handleSocialClick} />
-
                   <div className="mt-8 text-center text-sm text-slate-600">
                     Don&apos;t have an account?{' '}
                     <button
@@ -656,6 +627,64 @@ export default function Home() {
                       Create a workspace
                     </button>
                   </div>
+                </>
+              )}
+
+              {/* =========================================================
+                  SET NEW PASSWORD (FIRST LOGIN CHALLENGE)
+              ========================================================= */}
+              {mode === 'set-new-password' && (
+                <>
+                  <div className="mb-6">
+                    <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+                      Set your new password
+                    </h1>
+                    <p className="mt-2 text-sm text-slate-500">
+                      Please create a permanent password for your TeamGate account to complete sign-in.
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleSetNewPassword} className="space-y-5">
+                    <div>
+                      <label
+                        htmlFor="challenge-new-password"
+                        className="mb-2 block text-sm font-medium text-slate-700"
+                      >
+                        New password
+                      </label>
+                      <PasswordInput
+                        id="challenge-new-password"
+                        value={newPassword}
+                        onChange={setNewPassword}
+                        placeholder="Create a new password"
+                        autoComplete="new-password"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="challenge-confirm-password"
+                        className="mb-2 block text-sm font-medium text-slate-700"
+                      >
+                        Confirm new password
+                      </label>
+                      <PasswordInput
+                        id="challenge-confirm-password"
+                        value={confirmPassword}
+                        onChange={setConfirmPassword}
+                        placeholder="Confirm new password"
+                        autoComplete="new-password"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full rounded-full bg-teal-600 py-3.5 px-6 font-semibold text-white shadow-sm transition hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 text-base"
+                    >
+                      {loading ? 'Updating password...' : 'Set password & Sign in'}
+                    </button>
+                  </form>
                 </>
               )}
 
@@ -825,10 +854,6 @@ export default function Home() {
                       {loading ? 'Creating workspace...' : 'Continue'}
                     </button>
                   </form>
-
-                  <OrDivider />
-
-                  <SocialButtons onSocialClick={handleSocialClick} />
 
                   <div className="mt-8 text-center text-sm text-slate-600">
                     Already have an account?{' '}

@@ -35,10 +35,14 @@ export interface AuthUser {
    LOGIN
 ========================================================= */
 
+export type LoginResult =
+  | { type: 'SUCCESS'; session: CognitoUserSession }
+  | { type: 'NEW_PASSWORD_REQUIRED'; cognitoUser: CognitoUser; userAttributes: unknown };
+
 export function login(
   email: string,
   password: string
-): Promise<CognitoUserSession> {
+): Promise<LoginResult> {
   return new Promise((resolve, reject) => {
     const authenticationDetails = new AuthenticationDetails({
       Username: email,
@@ -52,19 +56,35 @@ export function login(
 
     cognitoUser.authenticateUser(authenticationDetails, {
       onSuccess: (session) => {
-        resolve(session);
+        resolve({ type: 'SUCCESS', session });
       },
 
       onFailure: (err) => {
         reject(err);
       },
 
-      newPasswordRequired: () => {
-        reject(
-          new Error(
-            'A new password is required. Please complete the password change process.'
-          )
-        );
+      newPasswordRequired: (userAttributes) => {
+        resolve({
+          type: 'NEW_PASSWORD_REQUIRED',
+          cognitoUser,
+          userAttributes,
+        });
+      },
+    });
+  });
+}
+
+export function completeNewPasswordChallenge(
+  cognitoUser: CognitoUser,
+  newPassword: string
+): Promise<CognitoUserSession> {
+  return new Promise((resolve, reject) => {
+    cognitoUser.completeNewPasswordChallenge(newPassword, {}, {
+      onSuccess: (session) => {
+        resolve(session);
+      },
+      onFailure: (err) => {
+        reject(err);
       },
     });
   });

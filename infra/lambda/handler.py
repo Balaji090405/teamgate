@@ -549,6 +549,7 @@ def handle_invite_user(event: dict):
         return response(400, {"message": "Invalid JSON."})
 
     invite_email = str(body.get("email", "")).strip().lower()
+    invite_name = str(body.get("name", "")).strip() if body.get("name") else None
     invite_role = str(body.get("role", "EMPLOYEE")).upper()
 
     if not invite_email or "@" not in invite_email:
@@ -560,41 +561,62 @@ def handle_invite_user(event: dict):
     if invite_role not in ("MANAGER", "EMPLOYEE"):
         return response(400, {"message": "Invalid role. Allowed invitation roles are MANAGER and EMPLOYEE."})
 
-    raw_token = secrets.token_urlsafe(48)
-    token_hash = hash_token(raw_token)
-    created_at = now_iso()
-    expires_at = seven_days_from_now_iso()
+    user_attrs = [{"Name": "email", "Value": invite_email}]
+    if invite_name:
+        user_attrs.append({"Name": "name", "Value": invite_name})
 
-    table.put_item(
-        Item={
-            "PK": f"WORKSPACE#{ws['workspaceId']}",
-            "SK": f"INVITATION#{token_hash}",
-            "GSI1PK": f"INVITATION#{token_hash}",
-            "GSI1SK": "METADATA",
-            "entityType": "INVITATION",
-            "workspaceId": ws["workspaceId"],
-            "invitedEmail": invite_email,
-            "role": invite_role,
-            "tokenHash": token_hash,
-            "status": "PENDING",
-            "createdAt": created_at,
-            "expiresAt": expires_at,
-            "createdBy": user_id,
-        }
-    )
+    try:
+        cog_res = cognito.admin_create_user(
+            UserPoolId=USER_POOL_ID,
+            Username=invite_email,
+            UserAttributes=user_attrs,
+            DesiredDeliveryMediums=["EMAIL"],
+        )
+    except ClientError as err:
+        err_code = err.response.get("Error", {}).get("Code")
+        if err_code in ("UsernameExistsException", "EntityAlreadyExistsException"):
+            return response(409, {"message": "An account with this email already exists."})
+        print("Cognito admin_create_user failed:", err)
+        return response(400, {"message": f"Could not create user invitation: {err.response.get('Error', {}).get('Message', str(err))}"})
+    except Exception as err:
+        print("Cognito admin_create_user unexpected error:", err)
+        return response(500, {"message": "Failed to create user in authentication system."})
 
-    invitation_url = f"https://teamgate.vercel.app/accept-invite?token={raw_token}"
-    create_activity(ws["workspaceId"], user_id, "USER_INVITED", token_hash, f"Created {invite_role} invitation for {invite_email}")
+    new_user = cog_res.get("User", {})
+    new_user_attrs = {attr["Name"]: attr["Value"] for attr in new_user.get("Attributes", [])}
+    cognito_sub = new_user_attrs.get("sub") or new_user.get("Username") or invite_email
+
+    group_name = "Manager" if invite_role == "MANAGER" else "Employee"
+    try:
+        cognito.admin_add_user_to_group(UserPoolId=USER_POOL_ID, Username=cognito_sub, GroupName=group_name)
+    except Exception as err:
+        print("Failed to add invited user to Cognito group:", err)
+
+    timestamp = now_iso()
+    member_item = {
+        "PK": f"WORKSPACE#{ws['workspaceId']}",
+        "SK": f"MEMBER#{cognito_sub}",
+        "GSI1PK": f"USER#{cognito_sub}",
+        "GSI1SK": f"WORKSPACE#{ws['workspaceId']}",
+        "entityType": "MEMBER",
+        "workspaceId": ws["workspaceId"],
+        "userId": cognito_sub,
+        "email": invite_email,
+        "role": invite_role,
+        "isOwner": False,
+        "joinedAt": timestamp,
+    }
+    if invite_name:
+        member_item["name"] = invite_name
+
+    table.put_item(Item=member_item)
+
+    create_activity(ws["workspaceId"], user_id, "USER_INVITED", cognito_sub, f"Sent invitation to {invite_email} as {invite_role}")
 
     return response(201, {
-        "message": "Invitation created successfully.",
-        "invitation": {
-            "rawToken": raw_token,
-            "invitationUrl": invitation_url,
-            "invitedEmail": invite_email,
-            "role": invite_role,
-            "expiresAt": expires_at,
-        },
+        "message": "Invitation sent successfully",
+        "email": invite_email,
+        "role": invite_role,
     })
 
 

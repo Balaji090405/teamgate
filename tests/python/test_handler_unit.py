@@ -66,19 +66,24 @@ def test_invite_manager_forbidden():
 def test_invite_creation_success():
     """Verify that an ADMIN creating a MANAGER or EMPLOYEE invite succeeds with HTTP 201."""
     mock_table = MagicMock()
+    mock_cognito = MagicMock()
+    mock_cognito.admin_create_user.return_value = {
+        "User": {
+            "Username": "newuser@example.com",
+            "Attributes": [{"Name": "sub", "Value": "user-sub-123"}],
+        }
+    }
     with patch.object(handler, "get_effective_role", return_value=({"workspaceId": "ws-1"}, "ADMIN")), \
          patch.object(handler, "table", mock_table), \
+         patch.object(handler, "cognito", mock_cognito), \
+         patch.object(handler, "USER_POOL_ID", "pool-123"), \
          patch.object(handler, "create_activity"):
         evt = make_event("POST", "/team", body={"email": "newuser@example.com", "role": "MANAGER"}, groups=["Admin"])
         res = handler.handle_invite_user(evt)
         assert res["statusCode"] == 201, f"Expected 201, got {res['statusCode']}"
         body = json.loads(res["body"])
-        assert "invitation" in body
-        inv = body["invitation"]
-        assert inv["role"] == "MANAGER"
-        assert inv["invitedEmail"] == "newuser@example.com"
-        assert "rawToken" in inv
-        assert "invitationUrl" in inv
+        assert "Invitation sent successfully" in body["message"]
+        mock_cognito.admin_create_user.assert_called_once()
         print("[PASS] test_invite_creation_success")
 
 
