@@ -238,6 +238,113 @@ def test_get_team_returns_only_workspace_members():
         print("[PASS] test_get_team_returns_only_workspace_members")
 
 
+def test_new_workspace_creator_is_admin():
+    """Verify that a brand-new user with no existing membership gets a new workspace where they are ADMIN/OWNER."""
+    mock_table = MagicMock()
+    mock_cognito = MagicMock()
+    mock_table.query.return_value = {"Items": []}
+
+    with patch.object(handler, "table", mock_table), \
+         patch.object(handler, "cognito", mock_cognito), \
+         patch.object(handler, "USER_POOL_ID", "pool-123"):
+        ws = handler.ensure_workspace("new-user-1", "newuser@example.com")
+        assert ws["role"] == "ADMIN"
+        assert ws["isOwner"] is True
+        assert "workspaceId" in ws
+        mock_cognito.admin_add_user_to_group.assert_called_with(
+            UserPoolId="pool-123", Username="new-user-1", GroupName="Admin"
+        )
+        print("[PASS] test_new_workspace_creator_is_admin")
+
+
+def test_new_workspace_gets_owner_membership():
+    """Verify DynamoDB records created for a new workspace owner (MEMBER with isOwner=True, role=ADMIN)."""
+    mock_table = MagicMock()
+    mock_cognito = MagicMock()
+    mock_table.query.return_value = {"Items": []}
+
+    with patch.object(handler, "table", mock_table), \
+         patch.object(handler, "cognito", mock_cognito):
+        ws = handler.ensure_workspace("owner-id-100", "owner@company.com")
+        put_calls = mock_table.put_item.call_args_list
+        assert len(put_calls) == 2, f"Expected 2 put_item calls, got {len(put_calls)}"
+        member_item = put_calls[1][1]["Item"]
+        assert member_item["entityType"] == "MEMBER"
+        assert member_item["userId"] == "owner-id-100"
+        assert member_item["role"] == "ADMIN"
+        assert member_item["isOwner"] is True
+        print("[PASS] test_new_workspace_gets_owner_membership")
+
+
+def test_new_workspace_isolated_from_existing_workspace():
+    """Verify that a new workspace receives a distinct ID and is not attached to existing workspace."""
+    mock_table = MagicMock()
+    mock_cognito = MagicMock()
+    mock_table.query.return_value = {"Items": []}
+
+    with patch.object(handler, "table", mock_table), \
+         patch.object(handler, "cognito", mock_cognito):
+        ws1 = handler.ensure_workspace("user-a", "usera@example.com")
+        mock_table.query.return_value = {"Items": []}
+        ws2 = handler.ensure_workspace("user-b", "userb@example.com")
+        assert ws1["workspaceId"] != ws2["workspaceId"]
+        print("[PASS] test_new_workspace_isolated_from_existing_workspace")
+
+
+def test_invited_employee_remains_employee():
+    """Verify an invited user with an existing EMPLOYEE membership retains EMPLOYEE role and does not become ADMIN."""
+    mock_table = MagicMock()
+    mock_cognito = MagicMock()
+    mock_table.query.return_value = {
+        "Items": [
+            {
+                "PK": "WORKSPACE#invited-ws-1",
+                "SK": "MEMBER#user-emp",
+                "workspaceId": "invited-ws-1",
+                "userId": "user-emp",
+                "email": "invited_emp@example.com",
+                "role": "EMPLOYEE",
+                "isOwner": False,
+            }
+        ]
+    }
+
+    with patch.object(handler, "table", mock_table), \
+         patch.object(handler, "cognito", mock_cognito):
+        ws = handler.ensure_workspace("user-emp", "invited_emp@example.com")
+        assert ws["workspaceId"] == "invited-ws-1"
+        assert ws["role"] == "EMPLOYEE"
+        assert ws["isOwner"] is False
+        print("[PASS] test_invited_employee_remains_employee")
+
+
+def test_invited_manager_remains_manager():
+    """Verify an invited user with an existing MANAGER membership retains MANAGER role and does not become ADMIN."""
+    mock_table = MagicMock()
+    mock_cognito = MagicMock()
+    mock_table.query.return_value = {
+        "Items": [
+            {
+                "PK": "WORKSPACE#invited-ws-2",
+                "SK": "MEMBER#user-mgr",
+                "workspaceId": "invited-ws-2",
+                "userId": "user-mgr",
+                "email": "invited_mgr@example.com",
+                "role": "MANAGER",
+                "isOwner": False,
+            }
+        ]
+    }
+
+    with patch.object(handler, "table", mock_table), \
+         patch.object(handler, "cognito", mock_cognito):
+        ws = handler.ensure_workspace("user-mgr", "invited_mgr@example.com")
+        assert ws["workspaceId"] == "invited-ws-2"
+        assert ws["role"] == "MANAGER"
+        assert ws["isOwner"] is False
+        print("[PASS] test_invited_manager_remains_manager")
+
+
 def run_all_unit_tests():
     print("=" * 70)
     print("Running TeamGate Handler Unit Tests (Mocked AWS)")
@@ -250,8 +357,13 @@ def run_all_unit_tests():
     test_accept_invitation_matching_email()
     test_create_workspace_assigns_admin()
     test_get_team_returns_only_workspace_members()
+    test_new_workspace_creator_is_admin()
+    test_new_workspace_gets_owner_membership()
+    test_new_workspace_isolated_from_existing_workspace()
+    test_invited_employee_remains_employee()
+    test_invited_manager_remains_manager()
     print("=" * 70)
-    print("ALL HANDLER UNIT TESTS PASSED SUCCESSFULLY! (8/8)")
+    print("ALL HANDLER UNIT TESTS PASSED SUCCESSFULLY! (13/13)")
     print("=" * 70)
 
 

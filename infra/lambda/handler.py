@@ -108,16 +108,6 @@ def get_workspace_for_user(user_id: str) -> dict | None:
     if not items:
         return None
 
-    primary_ws_id = get_primary_workspace_id()
-    if primary_ws_id:
-        primary_item = next((item for item in items if item.get("workspaceId") == primary_ws_id), None)
-        if primary_item:
-            return {
-                "workspaceId": primary_item.get("workspaceId"),
-                "role": primary_item.get("role"),
-                "isOwner": primary_item.get("isOwner") is True,
-            }
-
     data = items[0]
     return {
         "workspaceId": data.get("workspaceId"),
@@ -126,7 +116,7 @@ def get_workspace_for_user(user_id: str) -> dict | None:
     }
 
 
-PRIMARY_WORKSPACE_ID = "ea3ea409-3b6d-4730-bdd7-84b8425e0d22"
+PRIMARY_WORKSPACE_ID = None
 
 
 def get_primary_workspace_id() -> str | None:
@@ -134,36 +124,12 @@ def get_primary_workspace_id() -> str | None:
 
 
 def ensure_workspace(user_id: str, email: str, initial_role: str | None = None) -> dict:
-    primary_ws_id = get_primary_workspace_id()
     existing = get_workspace_for_user(user_id)
-    if existing and (not primary_ws_id or existing.get("workspaceId") == primary_ws_id):
+    if existing:
         return existing
 
-    timestamp = now_iso()
-    if primary_ws_id:
-        member_role = initial_role or "EMPLOYEE"
-        table.put_item(
-            Item={
-                "PK": f"WORKSPACE#{primary_ws_id}",
-                "SK": f"MEMBER#{user_id}",
-                "GSI1PK": f"USER#{user_id}",
-                "GSI1SK": f"WORKSPACE#{primary_ws_id}",
-                "entityType": "MEMBER",
-                "workspaceId": primary_ws_id,
-                "userId": user_id,
-                "email": email,
-                "role": member_role,
-                "isOwner": False,
-                "joinedAt": timestamp,
-            }
-        )
-        return {
-            "workspaceId": primary_ws_id,
-            "role": member_role,
-            "isOwner": False,
-        }
-
     ws_id = new_id()
+    timestamp = now_iso()
     ws_name = f"{email.split('@')[0]}'s Workspace"
     table.put_item(
         Item={
@@ -195,6 +161,11 @@ def ensure_workspace(user_id: str, email: str, initial_role: str | None = None) 
             "joinedAt": timestamp,
         }
     )
+    try:
+        cognito.admin_add_user_to_group(UserPoolId=USER_POOL_ID, Username=user_id, GroupName="Admin")
+    except Exception as e:
+        print("Failed to add user to Admin group in ensure_workspace:", e)
+
     return {
         "workspaceId": ws_id,
         "role": "ADMIN",
