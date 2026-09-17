@@ -53,6 +53,7 @@ export interface Project {
   ownerId?: string;
   workspaceId?: string;
   attachment?: ProjectAttachment;
+  documents?: { fileName: string; fileType?: string; fileData?: string }[];
 }
 
 export interface DashboardResponse {
