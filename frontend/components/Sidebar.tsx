@@ -46,6 +46,11 @@ export default function Sidebar({
       href: '/projects',
       icon: '▤',
     },
+    {
+      label: 'Documents',
+      href: '/documents',
+      icon: '📄',
+    },
   ];
 
   if (role === 'ADMIN' || role === 'MANAGER') {

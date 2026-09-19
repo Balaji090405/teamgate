@@ -9,7 +9,6 @@ import {
 import { useRouter } from 'next/navigation';
 
 import Sidebar from '@/components/Sidebar';
-import AISummarizerChat from '@/components/AISummarizerChat';
 
 import {
   getMe,
@@ -516,12 +515,6 @@ export default function ProjectsPage() {
           )}
 
           {/* ========================================
-              AI SUMMARIZER & CHATBOT SECTION
-          ======================================== */}
-
-          <AISummarizerChat projects={projects} role={role} />
-
-          {/* ========================================
               PROJECT LIST
           ======================================== */}
 
@@ -701,34 +694,6 @@ export default function ProjectsPage() {
                               {project.description ||
                                 'No description provided.'}
                             </p>
-
-                            {project.attachment && (
-                              <div className="mt-3 flex items-center gap-2">
-                                <a
-                                  href={project.attachment.fileData}
-                                  download={project.attachment.fileName}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-900"
-                                >
-                                  <span>
-                                    {project.attachment.fileName.toLowerCase().endsWith('.pdf')
-                                      ? '📄'
-                                      : project.attachment.fileName.toLowerCase().endsWith('.docx')
-                                      ? '📝'
-                                      : '🖼️'}
-                                  </span>
-
-                                  <span className="max-w-[220px] truncate">
-                                    {project.attachment.fileName}
-                                  </span>
-
-                                  <span className="text-slate-400">
-                                    ↓ Download
-                                  </span>
-                                </a>
-                              </div>
-                            )}
 
                             <div className="mt-4 flex flex-wrap gap-5 text-xs text-slate-400">
                               {project.createdAt && (
